@@ -100,9 +100,24 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          # These are FAKE values — just enough for the build to succeed.
-          # The build doesn't actually connect to Supabase or Sentry.
-          # It just checks that all imports resolve and components compile.
+          # ── Supabase (public vars needed for client-side compilation) ──
           NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder-key"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
+          SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
+          # ── Database (needed by prisma.config.ts for prisma generate) ──
+          # These are FAKE — CI never actually connects to the database.
+          # prisma generate just reads schema.prisma for type generation;
+          # it doesn't make a DB connection. But prisma.config.ts requires
+          # the URL to be defined (non-undefined) to pass validation.
+          DATABASE_URL: "postgresql://postgres:placeholder@placeholder.supabase.com:6543/postgres"
+          DIRECT_URL: "postgresql://postgres:placeholder@placeholder.supabase.com:5432/postgres"
+          # ── AI keys (needed for import resolution, never called) ──
+          GEMINI_API_KEY: "placeholder"
+          GROQ_API_KEY: "placeholder"
+          OPENROUTER_API_KEY: "placeholder"
+          # ── Redis (needed for import resolution, never called) ──
+          UPSTASH_REDIS_REST_URL: "https://placeholder.upstash.io"
+          UPSTASH_REDIS_REST_TOKEN: "placeholder"
+          # ── Misc ──
+          CRON_SECRET: "placeholder"
           SENTRY_DSN: ""
