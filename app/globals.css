@@ -1,26 +1,184 @@
 @import "tailwindcss";
 
+/*
+ * ═══════════════════════════════════════════════════════════════
+ * FitLog — Global Design System
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * WHY CSS CUSTOM PROPERTIES (--variables)?
+ * ────────────────────────────────────────
+ * CSS custom properties (also called CSS variables) let us define
+ * colors/spacing ONCE and reuse them everywhere. If we change
+ * --color-primary here, it updates across the entire app.
+ *
+ * Tailwind v4 reads these variables via @theme and makes them
+ * available as utility classes (e.g., bg-primary, text-surface).
+ *
+ * WHY DARK MODE FIRST?
+ * ────────────────────
+ * Fitness apps are used during workouts (often in dim gyms or
+ * early mornings). Dark mode reduces eye strain and looks premium.
+ * We design dark first, light mode can be added later.
+ *
+ * HSL COLOR FORMAT:
+ * ─────────────────
+ * We use HSL (Hue, Saturation, Lightness) instead of hex (#fff).
+ * HSL is easier to create harmonious palettes — you can shift
+ * the lightness to get lighter/darker variants of the same color.
+ * Example: hsl(142, 71%, 45%) → green at 45% lightness
+ *          hsl(142, 71%, 30%) → same green but darker
+ */
+
+/* ─── Dark Theme Variables ─────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Background layers (darkest → lightest) */
+  --color-background: hsl(220, 20%, 6%);      /* Main app background — near black */
+  --color-surface: hsl(220, 18%, 10%);         /* Card/section backgrounds */
+  --color-surface-hover: hsl(220, 18%, 14%);   /* Cards on hover */
+  --color-surface-elevated: hsl(220, 18%, 16%);/* Modals, dropdowns */
+
+  /* Text (lightest → dimmest) */
+  --color-text-primary: hsl(220, 20%, 95%);    /* Main text — almost white */
+  --color-text-secondary: hsl(220, 15%, 65%);  /* Descriptions, labels */
+  --color-text-muted: hsl(220, 12%, 40%);      /* Placeholders, disabled */
+
+  /* Brand Colors — the personality of FitLog */
+  --color-primary: hsl(142, 71%, 45%);         /* Green — success, calories, go */
+  --color-primary-hover: hsl(142, 71%, 38%);   /* Green darker on hover */
+  --color-primary-muted: hsl(142, 40%, 20%);   /* Green background tint */
+
+  --color-accent: hsl(217, 91%, 60%);          /* Blue — links, info, active states */
+  --color-accent-hover: hsl(217, 91%, 50%);
+
+  /* Semantic Colors — what things MEAN */
+  --color-protein: hsl(217, 91%, 60%);         /* Blue — protein macro */
+  --color-carbs: hsl(37, 90%, 55%);            /* Amber — carbs macro */
+  --color-fat: hsl(350, 80%, 55%);             /* Red — fat macro */
+
+  --color-success: hsl(142, 71%, 45%);         /* Green */
+  --color-warning: hsl(37, 90%, 55%);          /* Amber */
+  --color-danger: hsl(0, 72%, 51%);            /* Red */
+  --color-info: hsl(217, 91%, 60%);            /* Blue */
+
+  /* Border & Dividers */
+  --color-border: hsl(220, 15%, 18%);
+  --color-border-hover: hsl(220, 15%, 28%);
+
+  /* Spacing Scale (in px — Tailwind converts to rem) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows — subtle depth for cards */
+  --shadow-sm: 0 1px 2px hsla(0, 0%, 0%, 0.3);
+  --shadow-md: 0 4px 12px hsla(0, 0%, 0%, 0.4);
+  --shadow-lg: 0 8px 24px hsla(0, 0%, 0%, 0.5);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/*
+ * ─── Tailwind v4 Theme Extension ──────────────────────
+ *
+ * @theme tells Tailwind: "make these CSS variables available
+ * as utility classes." After this, you can write:
+ *   bg-background, text-primary, border-border, etc.
+ *
+ * WITHOUT @theme, Tailwind doesn't know about our custom vars.
+ */
+@theme {
+  --color-background: var(--color-background);
+  --color-surface: var(--color-surface);
+  --color-surface-hover: var(--color-surface-hover);
+  --color-surface-elevated: var(--color-surface-elevated);
+
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+
+  --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-primary-muted: var(--color-primary-muted);
+
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+
+  --color-protein: var(--color-protein);
+  --color-carbs: var(--color-carbs);
+  --color-fat: var(--color-fat);
+
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-danger: var(--color-danger);
+  --color-info: var(--color-info);
+
+  --color-border: var(--color-border);
+  --color-border-hover: var(--color-border-hover);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-full: var(--radius-full);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/*
+ * ─── Base Styles ──────────────────────────────────────
+ *
+ * These apply to ALL elements by default.
+ * antialiased = smoother font rendering on macOS/Linux.
+ */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * ─── Scrollbar Styling ───────────────────────────────
+ *
+ * Default browser scrollbars look ugly on dark themes.
+ * We make them thin and match our dark palette.
+ * These only work in Chromium browsers (Chrome, Edge, Brave).
+ */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-hover);
+}
+
+/*
+ * ─── Focus Styles ─────────────────────────────────────
+ *
+ * When users navigate with keyboard (Tab key), we show
+ * a visible focus ring around interactive elements.
+ * focus-visible = only shows on keyboard focus, not click.
+ * This is an accessibility requirement.
+ */
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }

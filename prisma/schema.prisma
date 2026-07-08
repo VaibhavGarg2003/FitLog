@@ -1,0 +1,592 @@
+// ════════════════════════════════════════════════════════════════
+// FitLog — Complete Database Schema (Prisma)
+// ════════════════════════════════════════════════════════════════
+//
+// WHAT IS PRISMA?
+// ───────────────
+// Prisma is an ORM (Object-Relational Mapper). It lets you interact
+// with a PostgreSQL database using TypeScript instead of raw SQL.
+// You define your tables here as "models", and Prisma:
+//   1. Generates TypeScript types automatically (User, Workout, etc.)
+//   2. Provides a type-safe query API (prisma.user.findMany())
+//   3. Handles migrations (schema changes over time)
+//
+// HOW THIS FILE WORKS:
+// ────────────────────
+// 1. `generator client` — tells Prisma to generate a TS client
+// 2. `datasource db` — points to our Supabase PostgreSQL URL
+// 3. `model XYZ` — each model becomes a TABLE in the database
+// 4. Relations — `@relation` defines foreign keys between tables
+//
+// NAMING CONVENTION:
+// ──────────────────
+// - Model names: PascalCase (User, MealEntry) — Prisma convention
+// - Table names: snake_case via @@map("table_name") — PostgreSQL convention
+// - Column names: camelCase in Prisma → snake_case in DB via @map
+//
+// ALL TABLES ARE DEFINED HERE. Not a subset, not "add later."
+// This is the entire database from day one.
+// ════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+  // This tells Prisma: "Generate a JavaScript/TypeScript client
+  // that I can import and use to query the database."
+}
+
+datasource db {
+  provider  = "postgresql"
+  // In Prisma 7, the connection URL has moved to prisma.config.ts.
+  // This block now only declares the database ENGINE (PostgreSQL).
+  // The actual connection string is configured separately for:
+  //   - CLI operations (migrations, seed) → prisma.config.ts
+  //   - Runtime queries → PrismaClient constructor via adapter
+}
+
+// ─────────────────────────────────────────────────────────────
+// USER & PROFILE
+// ─────────────────────────────────────────────────────────────
+// Why separate User and Profile?
+// User = auth identity (from Supabase Auth). Rarely changes.
+// Profile = fitness data (TDEE, goals, strictness). Changes often.
+// Separating them means profile updates don't touch the auth table.
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  // @updatedAt — Prisma auto-updates this timestamp on every update.
+  // You never set it manually. Prisma handles it.
+
+  // ── Relations ──
+  // One user has ONE profile, MANY workouts, MANY meals, etc.
+  // These don't create columns — they tell Prisma about the relationship.
+  profile         Profile?
+  workoutSessions WorkoutSession[]
+  mealEntries     MealEntry[]
+  weightLogs      WeightLog[]
+  stepLogs        StepLog[]
+  goals           Goal[]
+  workoutTemplates WorkoutTemplate[]
+  weeklyInsights  WeeklyInsight[]
+
+  @@map("users")
+  // @@map("users") — the table in PostgreSQL is called "users" (lowercase),
+  // but in our TypeScript code we use "User" (PascalCase).
+}
+
+model Profile {
+  id              String   @id @default(uuid())
+  userId          String   @unique @map("user_id")
+  // @unique here means: one profile per user. Not zero, not two. One.
+
+  // ── Onboarding Data ──
+  age             Int?
+  heightCm        Float?   @map("height_cm")
+  weightKg        Float?   @map("weight_kg")
+  sex             Sex?
+  // Sex is an ENUM (defined below). Prisma creates it in PostgreSQL.
+  // Enums restrict the column to only the allowed values — no typos.
+
+  // ── Calculated Fitness Data ──
+  activityLevel   ActivityLevel? @map("activity_level")
+  goal            FitnessGoal?
+  tdee            Int?
+  // TDEE (Total Daily Energy Expenditure) — calculated from
+  // Mifflin-St Jeor + activity multiplier. Stored as integer calories.
+
+  targetCalories  Int?     @map("target_calories")
+  targetProtein   Int?     @map("target_protein")   // grams
+  targetCarbs     Int?     @map("target_carbs")      // grams
+  targetFat       Int?     @map("target_fat")        // grams
+
+  // ── User Preferences ──
+  strictness      Strictness @default(MODERATE)
+  // Strictness controls ALL nutrition feedback tone.
+  // RELAXED = encouraging. STRICT = brutally honest.
+  // Default is MODERATE — balanced.
+
+  dietaryType     DietaryType? @map("dietary_type")
+  // VEG, NON_VEG, VEGAN, EGGETARIAN — affects food search defaults.
+
+  workoutSplit    WorkoutSplit? @map("workout_split")
+  unitSystem      UnitSystem   @default(METRIC) @map("unit_system")
+
+  isOnboarded     Boolean  @default(false) @map("is_onboarded")
+  // We track if onboarding is complete. If false, redirect to /onboarding.
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // ── Relations ──
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // onDelete: Cascade — if the user is deleted, their profile is auto-deleted.
+  // Without this, deleting a user would leave an orphaned profile row.
+
+  @@map("profiles")
+}
+
+// ─────────────────────────────────────────────────────────────
+// WORKOUT SYSTEM
+// ─────────────────────────────────────────────────────────────
+
+model WorkoutSession {
+  id            String        @id @default(uuid())
+  userId        String        @map("user_id")
+  date          DateTime      @db.Date
+  // @db.Date — stores only the date (2026-07-03), not the full timestamp.
+  // This matters because users log workouts by DATE, not by exact second.
+
+  mode          WorkoutMode
+  // LIVE = logging during gym. RECALL = logging after gym.
+
+  splitType     WorkoutSplit? @map("split_type")
+  durationMin   Int?          @map("duration_min")
+  // Duration in minutes. Nullable because Live Mode calculates it
+  // automatically (endedAt - startedAt), Recall Mode gets it from user input.
+
+  rpe           Int?
+  // RPE (Rate of Perceived Exertion) — scale of 1-10.
+  // 6 = easy, 8 = hard, 10 = maximal.
+  // Nullable: optional in Live Mode, asked in Recall Mode.
+
+  caloriesBurnedLow  Int?    @map("calories_burned_low")
+  caloriesBurnedHigh Int?    @map("calories_burned_high")
+  // We store calorie burn as a RANGE, not a single number.
+  // "≈320–380 kcal" is more honest than "347 kcal".
+
+  startedAt     DateTime?    @map("started_at")
+  endedAt       DateTime?    @map("ended_at")
+  status        SessionStatus @default(IN_PROGRESS)
+  notes         String?
+
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  // ── Relations ──
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseSets  ExerciseSet[]
+
+  @@index([userId, date])
+  // @@index — creates a database INDEX on (user_id, date).
+  // WHY: The dashboard shows "today's workouts for this user".
+  // Without an index, PostgreSQL scans EVERY row to find matches.
+  // With an index, it jumps directly to matching rows. Much faster.
+
+  @@map("workout_sessions")
+}
+
+model ExerciseSet {
+  id          String   @id @default(uuid())
+  sessionId   String   @map("session_id")
+  exerciseId  String   @map("exercise_id")
+
+  setNumber   Int      @map("set_number")
+  // Which set this is (1st, 2nd, 3rd...). For ordering within an exercise.
+
+  weight      Float?   // kg or lbs (based on user's unitSystem)
+  reps        Int?
+  rpe         Int?     // Per-set RPE (optional, Live Mode only)
+
+  isWarmup    Boolean  @default(false) @map("is_warmup")
+  isPR        Boolean  @default(false) @map("is_pr")
+  // isPR — flagged by the PR detector in waitUntil() background processing.
+  // The UI shows a trophy icon 🏆 next to PR sets.
+
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // ── Relations ──
+  session     WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise    Exercise       @relation(fields: [exerciseId], references: [id])
+
+  @@index([sessionId])
+  @@map("exercise_sets")
+}
+
+// ─────────────────────────────────────────────────────────────
+// NUTRITION SYSTEM
+// ─────────────────────────────────────────────────────────────
+
+model MealEntry {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  date        DateTime  @db.Date
+  mealType    MealType  @map("meal_type")
+  // BREAKFAST, LUNCH, DINNER, SNACK — which meal slot this belongs to.
+
+  loggingPath LoggingPath @default(SEARCH) @map("logging_path")
+  // Tracks HOW the user logged this meal (Search, NLP, Repeat, Combo, Recipe).
+  // Useful for analytics: "70% of users prefer Repeat logging."
+
+  notes       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // ── Relations ──
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mealFoods   MealFood[]
+
+  @@index([userId, date])
+  @@map("meal_entries")
+}
+
+model MealFood {
+  id          String    @id @default(uuid())
+  mealEntryId String    @map("meal_entry_id")
+  foodId      String?   @map("food_id")
+  // foodId is nullable because NLP-parsed foods might not match
+  // a food in our database. We store the name/calories directly.
+
+  name        String    // "Roti", "Dal Tadka", "Chicken Curry"
+  quantity    Float     // 2, 1.5, 150 (depends on unit)
+  unit        String    // "piece", "katori", "g", "glass"
+
+  calories    Float
+  protein     Float     // grams
+  carbs       Float     // grams
+  fat         Float     // grams
+
+  isRestaurant Boolean  @default(false) @map("is_restaurant")
+  // Restaurant food has 40-60% more calories than homemade.
+  // When true, calories reflect the restaurant multiplier.
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  // ── Relations ──
+  mealEntry   MealEntry @relation(fields: [mealEntryId], references: [id], onDelete: Cascade)
+  food        Food?     @relation(fields: [foodId], references: [id])
+
+  @@map("meal_foods")
+}
+
+// ─────────────────────────────────────────────────────────────
+// WEIGHT & STEP TRACKING
+// ─────────────────────────────────────────────────────────────
+
+model WeightLog {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  date        DateTime @db.Date
+  weightKg    Float    @map("weight_kg")
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  // @@unique — one weight entry per user per day.
+  // If user logs weight twice on same day, second overwrites first.
+
+  @@map("weight_logs")
+}
+
+model StepLog {
+  id          String     @id @default(uuid())
+  userId      String     @map("user_id")
+  date        DateTime   @db.Date
+  count       Int        // Total steps for the day
+  source      StepSource @default(MANUAL)
+  // MANUAL = user typed it. GOOGLE_FIT = synced from Google Fit API.
+
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@map("step_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// GOAL TRACKING
+// ─────────────────────────────────────────────────────────────
+
+model Goal {
+  id            String      @id @default(uuid())
+  userId        String      @map("user_id")
+  type          FitnessGoal
+  targetValue   Float       @map("target_value")   // e.g., target weight in kg
+  startValue    Float       @map("start_value")     // starting weight in kg
+  startDate     DateTime    @map("start_date") @db.Date
+  targetDate    DateTime    @map("target_date") @db.Date
+  status        GoalStatus  @default(ACTIVE)
+
+  // ── LLM Midpoint Review ──
+  midpointReview  String?   @map("midpoint_review")
+  // The LLM's intervention text, stored after midpoint review runs.
+  // Shown on dashboard when user reaches the halfway point.
+
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkpoints   GoalCheckpoint[]
+
+  @@map("goals")
+}
+
+model GoalCheckpoint {
+  id            String   @id @default(uuid())
+  goalId        String   @map("goal_id")
+  weekNumber    Int      @map("week_number")
+  targetValue   Float    @map("target_value")
+  actualValue   Float?   @map("actual_value")
+  // actualValue is null until the user reaches that week and logs weight.
+
+  isHit         Boolean  @default(false) @map("is_hit")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  goal          Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@unique([goalId, weekNumber])
+  @@map("goal_checkpoints")
+}
+
+// ─────────────────────────────────────────────────────────────
+// REFERENCE DATA (Seeded — read-only after seed)
+// ─────────────────────────────────────────────────────────────
+// These tables are populated ONCE via a seed script (Step 2).
+// Users don't write to them. They're lookup tables.
+
+model Food {
+  id            String    @id @default(uuid())
+  name          String
+  nameHindi     String?   @map("name_hindi")
+  // Hindi name for Indian food search. "दाल तड़का" → "Dal Tadka"
+
+  source        FoodSource
+  // Where this food data came from: INDB, IFCT, USDA, or MANUAL.
+
+  category      String?   // "Dal", "Bread", "Curry", "Protein", etc.
+
+  // ── Nutrition per 100g (standard reference unit) ──
+  caloriesPer100g Float   @map("calories_per_100g")
+  proteinPer100g  Float   @map("protein_per_100g")
+  carbsPer100g    Float   @map("carbs_per_100g")
+  fatPer100g      Float   @map("fat_per_100g")
+  fiberPer100g    Float?  @map("fiber_per_100g")
+
+  // ── Default Serving ──
+  defaultUnit     String  @default("g") @map("default_unit")
+  // "piece" for roti, "katori" for dal, "g" for chicken
+  defaultQuantity Float   @default(100) @map("default_quantity")
+  // How much is 1 "piece" in grams? Roti = ~40g, Katori = ~150g
+
+  defaultGrams    Float   @default(100) @map("default_grams")
+  // The gram weight of one default serving unit.
+
+  restaurantMultiplier Float @default(1.5) @map("restaurant_multiplier")
+  // Multiply calories by this when eating out. Most restaurant food
+  // uses 1.4x–1.6x more oil/butter than homemade.
+
+  isVerified      Boolean @default(false) @map("is_verified")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  mealFoods       MealFood[]
+
+  @@index([name])
+  @@index([category])
+  @@map("foods")
+}
+
+model Exercise {
+  id            String   @id @default(uuid())
+  name          String
+  category      ExerciseCategory
+  // COMPOUND = multiple muscle groups (squat, bench, deadlift)
+  // ISOLATION = one muscle group (bicep curl, leg extension)
+  // CARDIO = cardiovascular (running, cycling)
+
+  muscleGroup   String   @map("muscle_group")
+  // "Chest", "Back", "Legs", "Shoulders", "Arms", "Core", "Cardio"
+
+  equipment     String?
+  // "Barbell", "Dumbbell", "Machine", "Cable", "Bodyweight"
+
+  metValue      Float    @map("met_value")
+  // MET (Metabolic Equivalent of Task) — used to calculate calories burned.
+  // Walking = 3.5, Weight training = 5-6, Running = 9-11
+
+  isCompound    Boolean  @default(false) @map("is_compound")
+  instructions  String?
+
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  exerciseSets  ExerciseSet[]
+
+  @@index([muscleGroup])
+  @@map("exercises")
+}
+
+// ─────────────────────────────────────────────────────────────
+// WORKOUT TEMPLATES
+// ─────────────────────────────────────────────────────────────
+// Users can save a workout as a template and reuse it.
+// Example: "Monday Push Day" template with specific exercises.
+
+model WorkoutTemplate {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  name        String
+  splitType   WorkoutSplit? @map("split_type")
+
+  // Template stores exercise IDs and default sets/reps as JSON
+  exercises   Json
+  // Json type — Prisma stores this as a JSONB column in PostgreSQL.
+  // Structure: [{ exerciseId: "...", sets: 4, reps: 10 }, ...]
+  // WHY JSON? Because templates are flexible — different exercises
+  // have different set/rep schemes. A rigid table would be overengineered.
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("workout_templates")
+}
+
+// ─────────────────────────────────────────────────────────────
+// WEEKLY AI INSIGHTS
+// ─────────────────────────────────────────────────────────────
+// Stores the AI-generated weekly coaching summaries.
+// One insight per user per week. Generated on demand when
+// the user visits the Progress page, then cached in the database.
+
+model WeeklyInsight {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  weekStart   DateTime @map("week_start") @db.Date
+  // weekStart is the Monday of the week this insight covers.
+  // Combined with userId, ensures one insight per user per week.
+
+  content     String
+  // The full LLM-generated insight text (2-4 paragraphs).
+
+  highlights  Json?    @default("[]")
+  // JSON array of 3 highlight strings. Stored as JSONB.
+
+  suggestion  String?
+  // One actionable suggestion for next week.
+
+  provider    String
+  // Which LLM generated this insight: "gemini", "groq", or "openrouter".
+  // Useful for debugging quality differences between providers.
+
+  metadata    Json?
+  // Raw stats used to generate (daily totals, workout count, weight change).
+  // Stored for debugging — lets us verify what data the LLM was given.
+
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weekStart])
+  // One insight per user per week. If regenerated, upserts over the old one.
+
+  @@map("weekly_insights")
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────
+// Enums restrict a column to ONLY these values. PostgreSQL enforces
+// this at the database level — you literally cannot insert an
+// invalid value, even with raw SQL.
+
+enum Sex {
+  MALE
+  FEMALE
+}
+
+enum ActivityLevel {
+  SEDENTARY     // Desk job, no exercise
+  LIGHT         // Light exercise 1-3 days/week
+  MODERATE      // Moderate exercise 3-5 days/week
+  ACTIVE        // Hard exercise 6-7 days/week
+  VERY_ACTIVE   // Athlete-level or physical job + exercise
+}
+
+enum FitnessGoal {
+  LOSE_FAT
+  GAIN_MUSCLE
+  MAINTAIN
+  RECOMP        // Body recomposition (lose fat + gain muscle)
+}
+
+enum Strictness {
+  RELAXED       // "Nice job today! Here's what you could try..."
+  MODERATE      // "You're 200 cal over target. Consider..."
+  STRICT        // "Over target by 200 cal. You need to fix this."
+}
+
+enum WorkoutSplit {
+  PPL           // Push-Pull-Legs
+  UPPER_LOWER   // Upper body / Lower body
+  BRO           // Chest day, Back day, Arm day...
+  FULL_BODY
+  CUSTOM
+}
+
+enum WorkoutMode {
+  LIVE          // Logging during gym (timer runs)
+  RECALL        // Logging after gym (date picker + manual)
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+enum LoggingPath {
+  SEARCH        // Searched food database
+  NLP           // Typed natural language → AI parsed
+  REPEAT        // Repeated a recent meal
+  COMBO         // Pre-built meal combo
+  RECIPE        // Custom saved recipe
+}
+
+enum StepSource {
+  MANUAL
+  GOOGLE_FIT
+}
+
+enum FoodSource {
+  INDB          // Indian Nutrient Databank (prepared dishes)
+  IFCT          // IFCT 2017 npm package (raw ingredients)
+  USDA          // USDA FoodData Central
+  MANUAL        // Manually added (whey protein, creatine, etc.)
+}
+
+enum ExerciseCategory {
+  COMPOUND
+  ISOLATION
+  CARDIO
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+enum UnitSystem {
+  METRIC        // kg, cm
+  IMPERIAL      // lbs, inches
+}
+
+enum DietaryType {
+  VEG           // Vegetarian — no meat, no eggs
+  NON_VEG       // Non-vegetarian — eats everything
+  VEGAN         // No animal products at all
+  EGGETARIAN    // Vegetarian + eggs
+}

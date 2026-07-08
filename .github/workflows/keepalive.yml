@@ -1,0 +1,33 @@
+# Supabase Keep-Alive Workflow
+# ════════════════════════════
+#
+# WHY THIS EXISTS:
+# ────────────────
+# Supabase pauses free-tier projects after 7 days of inactivity.
+# This cron job pings our /api/health endpoint every 3 days to
+# prevent the database from going to sleep.
+#
+# COST: $0. GitHub Actions gives 2,000 free minutes/month.
+# A curl every 3 days uses ~10 minutes/month.
+
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    # Run every 3 days at 06:00 UTC (11:30 AM IST)
+    - cron: "0 6 */3 * *"
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Health Endpoint
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.HEALTH_URL || 'https://fitlog.vercel.app/api/health' }})
+          echo "Health check response: $response"
+          if [ "$response" != "200" ]; then
+            echo "⚠️ Health check failed with status $response"
+            exit 1
+          fi
+          echo "✅ Supabase is alive"

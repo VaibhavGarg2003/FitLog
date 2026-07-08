@@ -1,0 +1,877 @@
+cheat meal
+any outside activity
+if user didnt visited website, email him (if email logged in)
+gym skipped one day
+How do you store all the data the user will give in the website, like the food plan? Our plan is that when the user returns and he clicks the previous one. How will you store all these data inside the website or in the account the user will make on that site? Then only you will store that. 
+
+Complete File Structure — Step 1
+ROOT LEVEL CONFIG FILES
+These are not your app code. They are instructions for tools.
+
+package.json The master list of your project. Contains the project name (fitlog), all installed libraries, and short commands (npm run dev, npm run build, npm run lint). Every tool reads this first to understand what is installed.
+
+tsconfig.json Configuration for TypeScript. Defines the @/ path alias. This is why you can write import { cn } from "@/lib/utils/cn" anywhere in the project instead of ../../../lib/utils/cn. Without this file, TypeScript wouldn't know what @/ means.
+
+next.config.ts Configuration for Next.js. Does two things: tells Next.js which image domains are allowed (Supabase storage, Google profile photos), and wraps the entire config in withSentryConfig() so Sentry can inject error tracking into the build.
+
+postcss.config.mjs One-liner. Just tells PostCSS (a CSS tool) to use Tailwind. Without this, Tailwind would not process your CSS.
+
+eslint.config.mjs Rules for ESLint (the code quality checker). Enforces Next.js and TypeScript best practices. When you run npm run lint, this file decides what is a warning or error.
+
+.gitignore Tells Git which files to never track. Key entries: node_modules/, .env.local (so your passwords never go to GitHub), .next/ (build output).
+
+.env.local Your actual secrets. Never committed. Contains your real Supabase URL, anon key, and database passwords. Your running app reads from here.
+
+.env.local.example A safe template with no real values. Committed to Git so any new developer knows exactly which environment variables they need to fill in. Think of it as the form, .env.local is the filled-out form.
+
+proxy.ts (ROOT LEVEL)
+The security checkpoint of your entire app. Every single request — every page visit, every API call — passes through this file before anything else runs.
+
+What it does:
+
+Calls updateSession() from lib/supabase/middleware.ts to refresh auth cookies
+Checks if the route is protected (e.g., /dashboard)
+If the user is not logged in and tries to visit a protected route → redirects to /login
+If the user is already logged in and visits /login or /signup → redirects to /dashboard
+Connected to: lib/supabase/middleware.ts (imports updateSession from there)
+
+prisma.config.ts (ROOT LEVEL)
+Configuration for the Prisma CLI tool. Only runs when you type npx prisma migrate dev or npx prisma generate in the terminal. Never runs when your app is serving users.
+
+What it does: Loads your .env.local file explicitly (because dotenv doesn't load .env.local by default), then points Prisma CLI to your DIRECT_URL (port 5432, the direct database connection) for running migrations.
+
+Connected to: .env.local (reads DIRECT_URL from there), prisma/schema.prisma (reads the schema from there)
+
+sentry.client.config.ts (ROOT LEVEL)
+Initializes Sentry in the browser. When a user's browser gets a JavaScript error, Sentry catches it here and sends a report to your Sentry dashboard. This file runs automatically before your React app starts in the browser.
+
+sentry.server.config.ts Same thing but for the server (API routes, Server Components). Server crashes get reported here.
+
+sentry.edge.config.ts Same thing but for edge runtime (the proxy.ts file runs at the edge). Errors in your auth guard get reported here.
+
+All three are independent. They share the same SENTRY_DSN environment variable but initialize separately because browser, server, and edge are three completely different JavaScript environments.
+
+prisma/schema.prisma
+The blueprint of your entire database. Defines every table, every column, every data type, and every relationship between tables.
+
+What it contains:
+
+15 models: User, Profile, WorkoutSession, ExerciseSet, MealEntry, MealFood, Food, Exercise, WeightLog, StepLog, Goal, GoalCheckpoint, WorkoutTemplate, WorkoutTemplateExercise, GoalCheckpoint
+14 enums: GoalType, ActivityLevel, MealType, ExerciseCategory, etc.
+Relationships between all models (e.g., one User has many MealEntries)
+Connected to: prisma.config.ts (which points to this file), lib/supabase/prisma.ts (which uses the generated TypeScript types from this schema)
+
+When you ran npx prisma migrate dev, Prisma read this file and created real SQL CREATE TABLE statements which were executed on your Supabase database.
+
+app/globals.css
+Your design system. The single most important CSS file in the project.
+
+What it contains:
+
+:root {} block: CSS custom properties (variables) for every color in dark mode (e.g., --color-background, --color-primary, --color-surface)
+@theme {} block: Registers those CSS variables into Tailwind v4 so you can use classes like bg-primary, text-text-secondary, border-border
+Base styles: resets default browser styles, sets the default font, prevents horizontal scroll
+Connected to: Every single component in the project. All Tailwind color classes (bg-primary, text-accent, etc.) that exist in every .tsx file ultimately trace back to color values defined in this one file.
+
+app/layout.tsx (Root Layout)
+The outermost shell of the entire application. Every single page, whether login, dashboard, or workout — is wrapped in this file.
+
+What it contains:
+
+The <html lang="en"> and <body> tags — the literal root of your HTML
+Google Font loading (Inter + Outfit) via next/font/google
+Sentry onRouteChange integration
+Wraps children in <QueryProvider> — making TanStack Query available everywhere
+Sets global metadata (app name used for browser tab titles)
+Connected to:
+
+components/providers/query-provider.tsx (imports and wraps children with it)
+app/globals.css (imports it so styles apply everywhere)
+All other layouts and pages (they are the children this layout wraps)
+app/page.tsx (Landing Page)
+The page at URL /. This is a Server Component — it has no "use client" at the top, so it runs on the server and sends HTML to the browser.
+
+What it does: Renders the public landing page with the FitLog hero section, feature list, and call-to-action buttons. It also checks if the user is already logged in (via Supabase server client) and redirects directly to /dashboard if they are, skipping the landing page.
+
+Connected to: lib/supabase/server.ts (to check auth status on the server)
+
+app/(app)/ — Route Group: Authenticated Pages
+The parentheses (app) mean this is a route group. The folder name does not appear in the URL. Its only purpose is to group pages that share the same layout.
+
+app/(app)/layout.tsx The layout that wraps all authenticated pages (dashboard, workout, nutrition, progress, settings, onboarding). It renders two things: the <BottomNav> component at the bottom, and a main content area above it with padding to avoid the nav overlapping content.
+
+Connected to: components/shared/bottom-nav.tsx (imports and renders it)
+
+app/(app)/dashboard/page.tsx URL: /dashboard. Currently a placeholder. Imports nothing special. Will be fully built in Step 3.
+
+app/(app)/workout/page.tsx URL: /workout. Placeholder.
+
+app/(app)/nutrition/page.tsx URL: /nutrition. Placeholder.
+
+app/(app)/progress/page.tsx URL: /progress. Placeholder.
+
+app/(app)/settings/page.tsx URL: /settings. Placeholder.
+
+app/(app)/onboarding/page.tsx URL: /onboarding. Placeholder. Will be replaced with the full 5-step wizard in Step 2.
+
+app/(auth)/ — Route Group: Unauthenticated Pages
+Same concept as (app). Groups login and signup which share a different layout (centered on screen, no bottom nav).
+
+app/(auth)/layout.tsx Renders a centered container for login and signup forms. No bottom nav. Dark background. The content is centered vertically and horizontally.
+
+app/(auth)/login/page.tsx URL: /login. This is a Server Component wrapper only. Its only job is to wrap the login form in React <Suspense>. This is required because useSearchParams() (used to read the ?redirect= parameter in the URL) can only run in a Client Component inside a Suspense boundary.
+
+app/(auth)/login/login-form.tsx The actual login UI with "use client" at the top. Contains all the logic:
+
+useState for email, password, loading state, error messages
+useSearchParams to read where to redirect after login
+useRouter to navigate after successful login
+Calls supabase.auth.signInWithPassword() for email login
+Calls supabase.auth.signInWithOAuth({ provider: 'google' }) for Google login
+Connected to: lib/supabase/client.ts (imports createClient from there)
+
+app/(auth)/signup/page.tsx URL: /signup. Similar to login — client component with email/password signup form. Calls supabase.auth.signUp().
+
+Connected to: lib/supabase/client.ts
+
+app/auth/callback/route.ts
+URL: /auth/callback. This is a Route Handler (server-only, not a page). No UI is rendered here.
+
+What it does: After Google OAuth redirects the user back to your app with a ?code= parameter in the URL, this file:
+
+Reads the code from the URL
+Calls supabase.auth.exchangeCodeForSession(code) — sends the code back to Supabase which exchanges it with Google for a real session
+Redirects to /dashboard on success, /login?error=auth_failed on failure
+Connected to: lib/supabase/server.ts (imports createClient from there to run the exchange server-side)
+
+lib/supabase/client.ts
+Creates a Supabase client for use in the browser.
+
+Rule: Used ONLY for auth operations (signIn, signOut, signInWithOAuth). Never for database queries.
+
+Connected to: app/(auth)/login/login-form.tsx, app/(auth)/signup/page.tsx (both import createClient from here)
+
+lib/supabase/server.ts
+Creates a Supabase client for use on the server (Server Components, Route Handlers, Server Actions).
+
+The difference from client.ts: This version reads and writes cookies using Next.js's cookies() API. This is required on the server because the server doesn't have access to browser APIs like localStorage. Cookies are the bridge that carries the user's session from the browser to the server.
+
+Connected to: app/page.tsx, app/auth/callback/route.ts, and will be used by all API routes in Step 2+
+
+lib/supabase/middleware.ts
+Contains one function: updateSession(). This is called by proxy.ts on every request.
+
+What it does:
+
+Creates a special Supabase client that can read and write cookies
+Calls supabase.auth.getUser() to validate the session token
+Returns the user object (or null if not logged in) back to proxy.ts
+Also returns the modified response with refreshed cookie headers
+The reason this is separate from server.ts is that the proxy runs in the Edge Runtime (a limited server environment). It needs a slightly different setup from the regular server client.
+
+Connected to: proxy.ts (imports updateSession from here)
+
+lib/supabase/prisma.ts
+The Prisma singleton. Creates one PrismaClient instance and reuses it for the lifetime of the server process.
+
+What it does:
+
+Creates a PostgreSQL connection pool (new Pool() from the pg library) using DATABASE_URL
+Creates a PrismaPg adapter that bridges the pg library to Prisma (Prisma 7 requirement)
+Creates a PrismaClient with that adapter
+Stores it in globalThis so Next.js hot-reloads don't create new connections every time you save a file
+Connected to: Will be imported by all repositories in Step 2+ (import { prisma } from "@/lib/supabase/prisma")
+
+lib/utils/cn.ts
+One function: cn(). Combines clsx and tailwind-merge.
+
+What it does: Lets you safely combine Tailwind classes, especially conditional ones. Without it, you'd end up with conflicting classes like bg-red-500 bg-blue-500 on the same element. cn() resolves conflicts intelligently.
+
+Usage in every component:
+
+typescript
+className={cn("base-class", isActive && "active-class", "another-class")}
+Connected to: Every component file. cn() appears in nearly every .tsx file in the project.
+
+lib/utils/constants.ts
+A single source of truth for values used across multiple files.
+
+What it contains:
+
+APP_NAME = "FitLog" — used in page titles, login page header
+NAV_ITEMS array — the 5 bottom navigation items with their icons, labels, and routes. The bottom nav component reads from this array to render itself
+SAFETY_CALORIES — minimum safe calorie thresholds
+Route constants
+Connected to: components/shared/bottom-nav.tsx (reads NAV_ITEMS), app/(auth)/login/login-form.tsx (reads APP_NAME)
+
+components/providers/query-provider.tsx
+A Client Component wrapper that sets up TanStack Query for the entire app.
+
+What it does: Creates a QueryClient instance with sensible defaults (e.g., data stays fresh for 60 seconds, failed requests retry 1 time instead of 3) and wraps children in <QueryClientProvider>. Every component in the app can now call useQuery() and useMutation() hooks.
+
+Connected to: app/layout.tsx (imports it and wraps all children with it)
+
+components/shared/bottom-nav.tsx
+The navigation bar at the bottom of the screen. Shows on all authenticated pages.
+
+What it does:
+
+Reads NAV_ITEMS from constants
+Uses usePathname() to know which tab is currently active
+Renders 5 navigation tabs (Dashboard, Workout, Nutrition, Progress, Settings)
+Highlights the active tab with the primary green color
+Uses Link from Next.js for navigation (no full page reload)
+Connected to:
+
+lib/utils/constants.ts (imports NAV_ITEMS)
+lib/utils/cn.ts (uses cn() for conditional styling)
+app/(app)/layout.tsx (renders this component)
+stores/ui-store.ts
+A Zustand store for client-side UI state.
+
+What it contains:
+
+selectedDate — which date the user is viewing (defaults to today). Used across Dashboard, Nutrition, Workout pages so they all show the same date
+setSelectedDate() — function to change the date
+activeWorkoutId — if a workout is in progress, its ID is stored here so any component can check
+Connected to: Will be used in Step 3 by all feature pages that need to know the currently selected date
+
+.github/workflows/ci.yml
+The CI/CD pipeline. Runs automatically on GitHub whenever you push code.
+
+What it does (in order):
+
+Installs Node.js and your npm packages
+Runs npm run lint — fails the build if there are ESLint errors
+Runs npx tsc --noEmit — fails the build if there are TypeScript errors
+Runs npm run build — fails if the production build breaks
+If any step fails, you get an email and the broken code is blocked from going to production. Vercel (your hosting) only deploys after CI passes.
+
+
+
+
+PROBLEMS ENCOUNTERED STEP 1
+
+The architecture, tech stack, and workflow you’ve designed are legitimately **98% perfect**. This is a highly robust, modern SaaS architecture. The strict separation of concerns (Browser → API → Service → Repository → DB), the defense-in-depth security, and the LLM fallback chain are exactly the kind of architectural patterns that senior engineers expect to see in high-level system design discussions.
+
+However, because you have a strict **"free of cost for development, deployment, and production"** constraint, there are three hidden bottlenecks in your current plan that will break your app once real users start hitting it.
+
+Here is the 2% that needs tweaking to ensure it actually stays free and doesn't crash in production.
+
+### 1. The Upstash Redis Trap (10,000 limit)
+
+Your plan uses Upstash Redis for rate limiting and query caching. The free tier gives you **10,000 commands per day**.
+
+* **The Problem:** If you put the rate limiter on *every* API route, one user session (logging in, opening the dashboard, fetching a workout, logging 5 sets) could easily trigger 30 API calls. With just 100 active users, you will hit 3,000 commands. If you also use Redis to cache dashboard queries, you will blow past the 10,000 limit by dinnertime, and Upstash will start rejecting requests, breaking the app.
+* **The Fix:** **Do not rate-limit everything.** Only apply Upstash rate limiting to expensive/abusable routes: Auth endpoints, LLM endpoints (`/api/meal/parse`), and heavy mutation endpoints. For standard GET requests (like fetching workout history), rely on Next.js's built-in `fetch` cache or TanStack Query. Keep Redis strictly for protecting your LLM API keys.
+
+### 2. The Vercel 10-Second Timeout vs. LLM Fallbacks
+
+You are hosting on Vercel’s free Hobby tier, which has a **hard 10-second execution limit** for API routes.
+
+* **The Problem:** Your LLM fallback chain is: `Gemini Flash → Groq → OpenRouter`. If Gemini is struggling and takes 8 seconds before failing, and then Groq takes 3 seconds, your total time is 11 seconds. Vercel will forcefully kill the request at 10 seconds, returning a 504 Gateway Timeout. The user gets nothing, and the fallback chain becomes useless.
+* **The Fix:** Implement strict `AbortController` timeouts in your LLM router. Give Gemini a maximum of **4 seconds** to respond. If it doesn't, kill it and move to Groq (which is lightning-fast). You must ensure the *entire* chain resolves within ~8 seconds to give Prisma enough time to save the data and return the response before Vercel's 10-second execution axe falls.
+
+### 3. Supabase "7-Day Pause" Automation
+
+You noted in your context file that Supabase pauses free projects after 7 days of inactivity. You mentioned keeping a "cron ping active."
+
+* **The Fix:** Don't rely on yourself to remember to visit the site. Since you already have GitHub Actions set up for CI/CD, create a simple `.github/workflows/keepalive.yml` that runs a `curl` command against a public `/api/health` route in your app every 3 days. This guarantees Supabase never goes to sleep, costing you $0.
+
+### 4. Vercel Commercial Use Policy
+
+This is a legal/TOS issue, not a technical one. Vercel’s Hobby (free) tier explicitly forbids commercial usage.
+
+* **The Reality Check:** As long as the site is free to use, has no ads, no affiliate links, and no paywalls, you are perfectly fine on the Hobby tier. If you ever decide to monetize FitLog in the future, Vercel will require you to upgrade to the Pro tier ($20/mo).
+
+### Summary Verdict
+
+You don't need to rewrite any of your architectural documentation, but you *must* apply these constraints when we actually write the code for Step 2 and Step 3.
+
+The foundation is absolutely rock solid. Handling these specific edge cases—resource starvation, cascading timeouts, and free-tier orchestration—is what separates a toy project from a production-grade system.
+
+If you are comfortable with these adjustments, we have a green light. Shall we move straight into Step 2 and write the database seeding logic for the Indian food datasets?
+
+Do you think these changes need to be done or are necessary for our next steps? Configure everything and tell me here only if these would be good decisions rather than our previous decisions. 
+
+
+
+
+STEP 3
+Let me give you the complete picture of Step 3 — what gets built, in what order, how it all connects.
+
+---
+
+## Step 3 Overview
+
+Step 3 is the feature layer. Steps 1 and 2 built the foundation and the engine. Step 3 makes the app actually usable by a real user. After Step 3, someone can sign up, set a goal, log their meals, log their workouts, and see their progress.
+
+Everything in Step 3 follows the exact same architecture pattern from Step 2:
+
+```
+Browser
+  → TanStack Query hook (lib/hooks/)
+    → API Route (app/api/)
+      → Service (lib/services/)
+        → Repository (lib/repositories/)
+          → Prisma singleton (lib/supabase/prisma.ts — Step 1 file)
+            → Supabase PostgreSQL
+```
+
+No step is ever bypassed. Every API route still calls `supabase.auth.getUser()` first.
+
+---
+
+## Phase 3A — Fix the Onboarding Step 4 First
+
+This is the last remaining issue from the Step 2 audit. The engine is now fixed. The onboarding UI still has 4 static buttons: Lose Fat, Gain Muscle, Maintain, Recomp.
+
+### What changes in the wizard
+
+**File: `app/(app)/onboarding/_components/step-4-goal.tsx`**
+
+Currently shows 4 goal cards. Gets replaced with:
+1. A target weight input ("What weight do you want to reach?")
+2. A timeline slider ("When do you want to reach it?" — 1 to 12 months)
+3. A "Do you also want to build lean muscle?" toggle
+4. 5 body goal mode cards in plain language (Fat Loss / Lean Muscle / Abs Focus / Muscle Bulk / Maintain)
+
+When the user moves the slider, the component immediately calls `calculateGoalFromTimeline()` (just built in Step 2 fixes) and shows a live preview:
+
+```
+Target: 72 kg by November 2026
+Expected loss: 0.65 kg/week
+Daily target: 1,658 calories
+
+⚠️ 3 months is too aggressive for 10 kg. Minimum safe: 4 months.
+```
+
+The user sees the math before committing.
+
+**File: `lib/validators/onboarding.schema.ts`**
+
+Step 4 schema needs two new fields: `targetWeightKg` and `timelineDays`. The Zod schema gets updated. The TypeScript types auto-regenerate from the schema — no manual type changes.
+
+**File: `prisma/schema.prisma`**
+
+Two columns added to the `Profile` model: `targetWeightKg` and `goalDeadline` (date). A new migration is generated and run.
+
+**File: `lib/services/profile.service.ts`**
+
+`completeOnboarding()` is updated. When a user provides a target weight and timeline, the service calls `calculateGoalFromTimeline()` instead of `calculateTargetCalories()` to get the deficit. All calculated values still flow into the same `createUserWithProfile()` repository call.
+
+### How it connects to Step 1 and Step 2
+
+```
+step-4-goal.tsx
+  → calls calculateGoalFromTimeline()    ← Step 2 fix (tdee.ts)
+  → validates with updated step4Schema   ← Step 2 file (onboarding.schema.ts)
+  → onboarding-shell.tsx sends to API    ← Step 2 file
+  → profile.service.ts orchestrates      ← Step 2 file
+  → profile.repository.ts writes DB      ← Step 2 file
+  → prisma singleton                     ← Step 1 file (prisma.ts)
+  → Supabase PostgreSQL                  ← Step 1 infrastructure
+```
+
+---
+
+## Phase 3B — Core Features
+
+### Feature 1: Dashboard Page (`/dashboard`)
+
+Currently a placeholder that shows "Dashboard coming in Step 3." This becomes the main page every user sees every day.
+
+**What it shows:**
+
+**Calorie Ring** — a circular progress ring. Shows calories consumed today vs daily target. Fills up as the user logs meals. Color changes: green below target, amber at 90%, red if over.
+
+**Macro Bars** — three horizontal progress bars for Protein, Carbs, Fat. Each shows grams consumed vs target grams. Green = on track, red = over.
+
+**Goal Progress Card** — "You are on track to reach 72 kg by November 2026. You have lost 2.3 kg so far."
+
+**Workout Card** — shows today's session burn: "You burned ~342 kcal in today's workout." This number is displayed purely as information. It is never added to the daily calorie budget. This is the double-counting rule established in the audit.
+
+**Today's Meals** — compact list of what was logged today (Breakfast, Lunch, Dinner, Snacks) with calories per meal.
+
+**Date Picker** — a horizontal scrollable date strip. Uses `selectedDate` from the Zustand `ui-store.ts` (Step 1 file). All data on the dashboard reflects the selected date, not always today. This means users can review any past day.
+
+**New files for Dashboard:**
+- `app/(app)/dashboard/page.tsx` — server component, passes initial data
+- `app/(app)/dashboard/_components/calorie-ring.tsx` — Recharts RadialBarChart
+- `app/(app)/dashboard/_components/macro-bars.tsx` — Recharts BarChart or pure CSS bars
+- `app/(app)/dashboard/_components/goal-progress-card.tsx` — progress toward target weight
+- `app/(app)/dashboard/_components/date-strip.tsx` — horizontal date selector
+- `app/api/nutrition/daily/route.ts` — GET daily totals for a date
+- `lib/hooks/use-daily-summary.ts` — TanStack Query hook for the above
+
+**How Dashboard connects to Step 1 and Step 2:**
+
+```
+Dashboard opens
+  → date-strip.tsx reads selectedDate from ui-store.ts   ← Step 1 file
+
+  → use-profile.ts hook                                  ← Step 2 file
+    → GET /api/profile                                   ← Step 2 file
+      → profile.service.ts → profile.repository.ts       ← Step 2 files
+        → reads targetCalories, targetProtein, etc.       ← calculated in onboarding
+
+  → use-daily-summary.ts hook                            ← NEW (Step 3)
+    → GET /api/nutrition/daily?date=today                ← NEW (Step 3)
+      → nutrition.repository.ts                          ← NEW (Step 3)
+        → queries MealLog + MealFood tables
+          → prisma singleton                             ← Step 1 file
+
+  → calorie-ring.tsx                                     ← NEW (Step 3)
+    uses targetCalories from profile                     ← Step 2 engine calculated this
+    uses consumedCalories from daily summary             ← Step 3 data
+
+  → QueryClientProvider (wraps entire app)               ← Step 1 file (query-provider.tsx)
+```
+
+---
+
+### Feature 2: Workout Logger (`/workout`)
+
+Currently a placeholder. This becomes the page where a user logs their gym session.
+
+**The flow a user follows:**
+
+1. Open Workout tab
+2. See today's session (empty if nothing logged yet)
+3. Click "Add Exercise" → exercise browser opens
+4. Search or browse by muscle group (Chest, Back, Legs, etc.)
+5. Select an exercise → form appears: sets, weight (kg), reps, RPE (1-10)
+6. Save → set is logged
+7. Repeat for all exercises
+8. "Finish Workout" → session is saved with duration
+9. Dashboard shows: "You burned ~X kcal today" (information only)
+
+**The engine connection:**
+
+When the session is finished and saved, the service calls the engine:
+
+```
+For each strength exercise:
+  calculateStrengthBurn(
+    weightKg: user's body weight,
+    durationMinutes: time spent on this exercise,
+    rpe: average RPE for the exercise,
+    isCompound: from the Exercise record (e.g., bench press = true)
+  )
+  ← Step 2 file: lib/engine/strength.ts
+
+Total session burn = sum of all exercises
+This number is stored in WorkoutSession.totalCaloriesBurned
+It is displayed on the dashboard as INFO ONLY
+It is never added to targetCalories
+```
+
+**New files for Workout Logger:**
+- `app/(app)/workout/page.tsx`
+- `app/(app)/workout/_components/exercise-browser.tsx`
+- `app/(app)/workout/_components/set-logger.tsx`
+- `app/(app)/workout/_components/session-summary.tsx`
+- `lib/repositories/workout.repository.ts`
+- `lib/services/workout.service.ts`
+- `lib/hooks/use-workout.ts`
+- `app/api/workout/route.ts` — POST (create session), GET (get sessions for date)
+- `app/api/workout/[id]/route.ts` — PUT (add exercises), DELETE
+
+**Database tables used (already exist in Prisma schema from Step 1):**
+
+```
+WorkoutSession
+  id, userId, date, durationMinutes,
+  totalCaloriesBurned, notes
+
+ExerciseLog
+  id, sessionId, exerciseId, orderInSession
+
+SetLog
+  id, exerciseLogId, setNumber,
+  weightKg, reps, rpe,
+  durationSeconds (for cardio), distanceMeters (for cardio),
+  caloriesBurned (per set — calculated at log time)
+```
+
+**How Workout connects to Step 1 and Step 2:**
+
+```
+User selects exercise
+  → use-exercises.ts hook                  ← Step 2 file
+    → GET /api/exercises                   ← Step 2 file
+      → returns exercises with MET values  ← seeded in Step 2 (155 exercises)
+
+User saves set
+  → use-workout.ts hook (mutation)         ← NEW (Step 3)
+    → POST /api/workout                    ← NEW (Step 3)
+      → workout.service.ts
+          → calculateStrengthBurn()        ← Step 2 file: strength.ts
+          → workout.repository.ts
+            → prisma.$transaction()        ← Step 1 file: prisma.ts
+              → creates WorkoutSession
+              → creates ExerciseLog rows
+              → creates SetLog rows
+
+Dashboard updated
+  → totalCaloriesBurned stored in DB
+  → shown as "You burned X kcal"          ← Step 3: dashboard workout card
+  → NEVER changes targetCalories           ← official rule from audit
+```
+
+---
+
+### Feature 3: Nutrition Logger (`/nutrition`)
+
+Currently a placeholder. This is where a user logs everything they eat.
+
+**The flow:**
+
+1. Open Nutrition tab
+2. See today broken into 4 sections: Breakfast / Lunch / Dinner / Snacks
+3. Click "Add Food" under any section
+4. Type in search box → food results appear instantly (TanStack Query cache + Step 2 search API)
+5. Select food → quantity input appears (in grams, or standard serving size for Indian foods)
+6. Save → food logged under that meal
+7. Daily totals update in real time
+
+**What makes the food search fast:**
+
+The search hook (`use-food-search.ts`) from Step 2 already caches results for 5 minutes. Typing "roti" shows results from the API. Typing "roti" again later that session pulls from cache instantly — zero API call.
+
+**Indian food specifics:**
+
+The seed data from Step 2 includes `defaultUnit` (katori, roti, piece, cup) and `restaurantMultiplier` (restaurant portions are typically 1.3 to 1.8x the home portion). The nutrition logger will:
+- Show the `defaultUnit` as the default serving
+- Let the user switch to "custom grams"
+- Show a note when a food has a restaurant multiplier: "Restaurant versions are typically 40% higher"
+
+**New files for Nutrition Logger:**
+- `app/(app)/nutrition/page.tsx`
+- `app/(app)/nutrition/_components/meal-section.tsx` — Breakfast/Lunch/Dinner/Snacks
+- `app/(app)/nutrition/_components/food-search-modal.tsx` — search + quantity input
+- `app/(app)/nutrition/_components/daily-macro-summary.tsx` — totals at top
+- `lib/repositories/nutrition.repository.ts`
+- `lib/services/nutrition.service.ts`
+- `lib/hooks/use-nutrition.ts`
+- `app/api/nutrition/log/route.ts` — POST (add food), DELETE (remove food)
+- `app/api/nutrition/daily/route.ts` — GET daily summary
+
+**Database tables used (already in schema from Step 1):**
+
+```
+MealLog
+  id, userId, date, mealType (BREAKFAST/LUNCH/DINNER/SNACK),
+  totalCalories, totalProtein, totalCarbs, totalFat, totalFiber
+
+MealFood
+  id, mealLogId, foodId, quantityG,
+  calories, protein, carbs, fat, fiber
+  (these are calculated at log time from the Food record × quantity)
+```
+
+**How Nutrition connects to Step 1 and Step 2:**
+
+```
+User types "paneer"
+  → use-food-search.ts hook               ← Step 2 file
+    → GET /api/foods/search?q=paneer      ← Step 2 file
+      → queries 150 seeded foods           ← Step 2 seed data
+      → returns: { name, caloriesPer100g, protein, carbs, fat }
+
+User selects "Paneer 100g"
+  → nutrition modal calculates:
+    calories = 100 × (265/100) = 265 kcal  ← uses Food.caloriesPer100g
+    protein = 100 × (18.3/100) = 18.3g    ← uses Food.proteinPer100g
+
+User saves
+  → use-nutrition.ts mutation              ← NEW (Step 3)
+    → POST /api/nutrition/log              ← NEW (Step 3)
+      → nutrition.service.ts
+        → nutrition.repository.ts
+          → prisma.mealFood.create()       ← Step 1 prisma singleton
+          → updates MealLog totals
+
+Dashboard calorie ring updates
+  → use-daily-summary.ts refetches         ← NEW (Step 3)
+  → compares consumed vs targetCalories    ← Step 2: stored in Profile from engine
+```
+
+---
+
+### Feature 4: Progress Page (`/progress`)
+
+**What it shows:**
+
+**Weight Chart** — a line chart (Recharts LineChart) showing weight logged over time. X axis: dates. Y axis: weight in kg. Shows the user's trend toward their goal weight.
+
+**Log Today's Weight** — a simple input at the top. User types today's weight. One tap to save.
+
+**Goal Marker** — a horizontal dashed line on the chart at the target weight (stored in Profile from onboarding).
+
+**Statistics:**
+- Starting weight (from first Profile record)
+- Current weight (most recent WeightLog entry)
+- Total lost so far
+- Expected weeks remaining
+
+**When does Adaptive TDEE kick in?**
+
+After the user has at least 14 weight log entries, the Progress page also calls `calculateAdaptiveTDEE()` from Step 2. It compares actual weight change to expected weight change and calculates what the user's real TDEE must be. This number is shown as: "Your Adaptive TDEE: 2,480 kcal (formula estimated 2,748 kcal)."
+
+**New files for Progress:**
+- `app/(app)/progress/page.tsx`
+- `app/(app)/progress/_components/weight-chart.tsx` — Recharts LineChart
+- `app/(app)/progress/_components/weight-log-input.tsx`
+- `app/(app)/progress/_components/stats-cards.tsx`
+- `lib/repositories/progress.repository.ts`
+- `lib/services/progress.service.ts`
+- `lib/hooks/use-progress.ts`
+- `app/api/progress/weight/route.ts` — POST (log weight), GET (history)
+
+**How Progress connects to Step 1 and Step 2:**
+
+```
+Progress page loads
+  → use-profile.ts                         ← Step 2 file
+    → reads targetWeightKg, goalDeadline   ← stored during onboarding
+
+  → use-progress.ts                        ← NEW (Step 3)
+    → GET /api/progress/weight             ← NEW (Step 3)
+      → progress.repository.ts
+        → queries WeightLog table
+        → prisma singleton                 ← Step 1 file
+
+  → If 14+ entries exist:
+    → calculateAdaptiveTDEE()              ← Step 2 file: adaptive-tdee.ts
+      uses real weight change + calorie logs
+      returns actual TDEE (more accurate than formula)
+
+  → weight-chart.tsx renders Recharts     ← shows trend toward goal
+```
+
+---
+
+### Feature 5: Settings Page (`/settings`)
+
+**What it shows:**
+
+- Current stats: weight, height, age, activity level
+- Update any field
+- When goal or weight changes: "Recalculate my targets" button
+- Dietary type toggle (Veg / Non-Veg / Vegan / Eggetarian) — affects protein multiplier
+- Unit preference (kg/cm vs lbs/feet) — stored in Profile, UI converts on display
+
+**When user updates their weight or goal:**
+
+The settings page calls `recalculateProfile()` from `profile.service.ts` (Step 2 file). This reruns `calculateFullProfile()` with the new values and saves the updated targets to the Profile table. The dashboard then shows new macro targets the next time it loads.
+
+```
+User changes weight to 79 kg
+  → settings form validates with existing schema  ← Step 2 file
+  → calls recalculateProfile()                    ← Step 2 file: profile.service.ts
+    → calculateFullProfile({...updated values})   ← Step 2 file: tdee.ts
+      → new protein, carbs, fat targets calculated
+    → profile.repository.ts.updateProfile()       ← Step 2 file
+      → prisma.profile.update()                   ← Step 1 prisma singleton
+
+Dashboard next load
+  → use-profile.ts cache invalidated              ← Step 2 file
+  → fetches new targets automatically
+```
+
+---
+
+## Phase 3C — Polish
+
+After the core pages work, three polish items:
+
+**Protein in food terms on Dashboard** — instead of just "131g protein", show "3 eggs + 150g chicken + 1 glass milk" as a suggestion. This is just a UI display function, no new API.
+
+**Vegetarian suggestions in Nutrition Logger** — when `dietaryType` is VEG or VEGAN, the food search results prioritize Indian vegetarian sources (paneer, dal, soya chunks). The food seed data already has `dietaryType` tags from Step 2.
+
+**Progressive disclosure of warnings** — when `checkFatGramFloor()` or `checkCalorieFloor()` triggers (from Step 2's safety.ts), show a non-intrusive card on the dashboard: "Your fat intake today is lower than recommended. Add a handful of nuts or a teaspoon of ghee."
+
+---
+
+## Complete Connection Map: Step 3 → Step 2 → Step 1
+
+```
+STEP 1 FILES STEP 3 STILL USES:
+  proxy.ts                    → guards every page in Step 3
+  lib/supabase/prisma.ts      → every Step 3 repository imports from here
+  app/layout.tsx              → QueryClientProvider wraps all Step 3 hooks
+  components/shared/bottom-nav.tsx → navigation to all 5 pages
+  stores/ui-store.ts          → selectedDate shared across dashboard + logs
+  sentry.*.config.ts          → auto-captures all Step 3 API route errors
+  .github/workflows/ci.yml    → type-checks all new Step 3 code before deploy
+
+STEP 2 FILES STEP 3 USES:
+  lib/engine/tdee.ts          → dashboard reads stored targets; settings recalculates
+  lib/engine/cardio.ts        → workout logger uses for cardio session burn
+  lib/engine/strength.ts      → workout logger uses for strength session burn
+  lib/engine/adaptive-tdee.ts → progress page after 14+ weight logs
+  lib/engine/safety.ts        → dashboard warns when daily intake is unsafe
+  lib/repositories/profile.*  → settings page reads and updates profile
+  lib/services/profile.*      → settings page recalculates when values change
+  lib/validators/onboarding.* → settings page validation reuses same schemas
+  lib/hooks/use-profile.ts    → dashboard header, settings page
+  lib/hooks/use-food-search.ts → nutrition logger food search
+  lib/hooks/use-exercises.ts  → workout logger exercise browser
+  app/api/profile/route.ts    → dashboard reads current targets
+  app/api/foods/search/route.ts → nutrition search
+  app/api/exercises/route.ts  → workout exercise browser
+  app/api/health/route.ts     → keep-alive cron still running
+  prisma/seeds/data/*         → 150 foods and 155 exercises powering search
+```
+
+---
+
+## What Step 3 Does NOT Touch
+
+- Nothing from Step 1's authentication system changes
+- The Prisma schema stays the same except one migration for `targetWeightKg` and `goalDeadline`
+- The LLM integrations (meal photo parsing, AI coach) are Step 4
+- The Upstash Redis rate limiting stays minimal (auth + LLM only) — we do not add it to Step 3 routes
+- The keep-alive cron keeps running exactly as built
+
+---
+
+## Summary: Step 3 at a Glance
+
+| Phase | What | Files | Connects to |
+|---|---|---|---|
+| 3A | Onboarding Step 4 UI redesign | step-4-goal.tsx, schema update, migration | calculateGoalFromTimeline() (Step 2 fix) |
+| 3B | Dashboard | 6 new files + 2 API routes | use-profile, ui-store, engine targets |
+| 3B | Workout Logger | 6 new files + 3 API routes | strength.ts, cardio.ts, exercise seed data |
+| 3B | Nutrition Logger | 6 new files + 2 API routes | food search API + seed, macro engine |
+| 3B | Progress Page | 5 new files + 1 API route | adaptive-tdee.ts, weight log table |
+| 3C | Settings Page | 3 new files | recalculateProfile(), safety floors |
+| 3C | Polish | display-only changes | safety.ts warnings, vegetarian food filters |
+
+
+
+
+PROBLEMS ENCOUNTERED STEP 2
+
+The other AI gave a legitimate code review. Let me translate each point from technical language into plain English and give you my honest verdict on each.
+
+---
+
+## Problem 1 — Double Counting Exercise Calories
+### What is it saying?
+
+Right now, when a user picks `MODERATE` activity level in the onboarding wizard, the TDEE formula multiplies their BMR by $1.55$. That $1.55$ already **assumes** they go to the gym 3-5 days a week. That assumption is baked permanently into their daily calorie target.
+
+Now, in Step 3 of the build, when we build the workout logger, there will be a separate module that calculates calories burned during a workout session (using [cardio.ts](file:///c:/Fitness_app/lib/engine/cardio.ts) and [strength.ts](file:///c:/Fitness_app/lib/engine/strength.ts)).
+
+The dangerous question is: **what do we do with that workout calorie number?**
+
+```
+Example: Vaibhav's TDEE = 2,695 kcal (already includes gym 4x/week)
+
+He logs a gym session → cardio.ts calculates he burned 350 kcal.
+
+❌ WRONG: Target becomes 2,695 + 350 = 3,045 kcal
+   (Gym already counted in the 1.55 multiplier → counted TWICE)
+
+✅ RIGHT: Keep target at 2,695 kcal.
+   Show the 350 kcal as INFORMATION ONLY ("you burned ~350 kcal today")
+   but don't add it to the daily budget.
+```
+
+This is exactly how MyFitnessPal gets it wrong for millions of users. They use a sedentary TDEE but then add workout calories on top, which is a legitimate model. But they don't warn you that you should pick `SEDENTARY` in settings, not `ACTIVE`, to avoid double-counting. Many people pick their true activity level, activate the exercise add-back, and end up eating way more than intended.
+
+### Is this important?
+**Yes. Critical. This is the most important point.** If we add session calories on top of a MODERATE TDEE, a user could silently overeat by 300-500 kcal every day and wonder why they are gaining fat instead of losing it. We need to decide our model before building the workout logger in Step 3. My recommendation: **show workout calories as information only, never add them to the budget**, since our TDEE already accounts for activity level.
+
+---
+
+## Problem 2 — Rounding at the Wrong Step
+### What is it saying?
+
+Our macro calculation has 3 steps: calculate Protein → calculate Fat → calculate Carbs from the remainder. The error is in how we handle the decimal places between steps.
+
+```
+Example (incorrect order):
+Total Target = 2,995 kcal
+
+Fat Calories = 2,995 × 0.25 = 748.75 kcal
+→ We round this to 749 immediately
+→ Then subtract: 2,995 - 660 - 749 = 1,586 kcal for Carbs
+→ Carbs = 1,586 / 4 = 396.5g → rounds to 397g
+
+✅ Correct order (round only at the very end):
+Fat Calories = 748.75 (kept as decimal, not rounded yet)
+Carbs Calories = 2,995 - 660 - 748.75 = 1,586.25 kcal
+Fat Grams = 748.75 / 9 = 83.19g → rounds to 83g (now round)
+Carbs Grams = 1,586.25 / 4 = 396.56g → rounds to 397g (now round)
+```
+
+The final numbers look almost the same (1-2 gram difference). But the real risk is that when our Adaptive TDEE engine recalculates targets using stored values from the database, it reuses already-rounded numbers as if they are exact, and those small errors compound over time into something meaningfully wrong.
+
+### Is this important?
+**Moderately important.** The current drift is tiny ($1$-$2$ grams). But since the Adaptive TDEE engine in [adaptive-tdee.ts](file:///c:/Fitness_app/lib/engine/adaptive-tdee.ts) will reuse stored profile values, we should fix this before Step 3. It is a 5-line code fix in [tdee.ts](file:///c:/Fitness_app/lib/engine/tdee.ts).
+
+---
+
+## Problem 3 — The Age Off-By-One Slip
+### What is it saying?
+
+In the walkthrough, I showed $22$ years old in the example for one user and $23$ in another. That was a documentation error on my part, not a code bug. However, the reviewer is correctly pointing out: *please double-check the code that converts a birthday into an age.*
+
+The good news is the code in [profile.service.ts](file:///c:/Fitness_app/lib/services/profile.service.ts) already handles this correctly. It checks whether the birthday month has passed yet this year before deciding the final age. The discrepancy was only in my written explanation.
+
+### Is this important?
+**Not at all.** The code is correct. The walkthrough text had a typo. Nothing to fix.
+
+---
+
+## Problem 4 — No Minimum Floor on Fat Grams
+### What is it saying?
+
+Right now, [safety.ts](file:///c:/Fitness_app/lib/engine/safety.ts) only checks one thing: is the total calorie count above the minimum safe floor ($1,200$ for women, $1,500$ for men)?
+
+But it ignores a second danger: **fat grams can fall dangerously low on an aggressive cut.**
+
+```
+Example: Lighter woman, LOSE_FAT goal
+  TDEE = 1,800 kcal
+  Target = 1,800 - 500 = 1,300 kcal
+
+  Fat at 25% = 1,300 × 0.25 = 325 kcal = 36g of fat
+
+  36g/day is below the medical minimum of ~0.5g per kg needed
+  for hormone production, vitamin absorption, and joint health.
+```
+
+The calorie total ($1,300$) passes the safety floor check. But the fat grams are dangerously low, and our safety module would let this through without a warning.
+
+### Is this important?
+**Moderately important.** It won't affect the majority of users (heavier people or those with moderate goals have plenty of room). But it can cause harm for lighter users on aggressive cuts. We should add a fat-gram floor check to [safety.ts](file:///c:/Fitness_app/lib/engine/safety.ts) before Step 3. A simple additional rule: fat grams must never go below $0.5 \times \text{weight in kg}$.
+
+---
+
+## Problem 5 — No Body Composition Adjustment
+### What is it saying?
+
+Mifflin-St Jeor knows only: weight, height, age, sex. It does **not** know how much of that weight is muscle vs. fat.
+
+A $75\text{ kg}$ athlete who is $10\%$ body fat has dramatically more metabolically active muscle tissue than a $75\text{ kg}$ person who is $30\%$ body fat. Their real BMR could differ by $200$-$300\text{ kcal/day}$. But both get the same formula output.
+
+There is a more accurate formula (Katch-McArdle) that uses body fat percentage. The reviewer is saying we don't use it, which is fine, but it is a known limitation.
+
+### Is this important?
+**No.** The reviewer themselves said: *"this is a known and acceptable simplification."* We would need the user to know their body fat percentage to use Katch-McArdle, which most people don't. More importantly, this is **exactly what the Adaptive TDEE module fixes.** After $14$ days of real weight and calorie logging, [adaptive-tdee.ts](file:///c:/Fitness_app/lib/engine/adaptive-tdee.ts) corrects whatever the formula got wrong by looking at actual results. The formula is just the starting estimate. Real data replaces it over time.
+
+---
+
+## Summary Table
+
+| Problem | Simple Version | Important? | Action |
+|---|---|---|---|
+| **#1 Double Counting** | TDEE already includes gym days. Adding workout calories on top lets users eat 300-500 kcal more than they should. | ✅ Critical | Decide model before Step 3 |
+| **#2 Rounding Order** | We round fat calories before using them to calculate carbs. This creates small errors that compound in Adaptive TDEE. | ⚠️ Fix before Step 3 | 5-line fix in `tdee.ts` |
+| **#3 Age Typo** | My documentation had a typo. The code is already correct. | ❌ Not a bug | Nothing |
+| **#4 Fat Gram Floor** | Aggressive cuts can push fat intake below the medical minimum. Safety checker only checks total calories, not fat grams. | ⚠️ Fix before Step 3 | Add fat floor to `safety.ts` |
+| **#5 Body Composition** | Formula doesn't know muscle vs fat ratio. Acceptable limitation fixed by Adaptive TDEE module over time. | ❌ Not needed | Adaptive TDEE handles it |

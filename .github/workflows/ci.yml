@@ -1,0 +1,108 @@
+# ════════════════════════════════════════════════════════════════
+# FitLog — CI/CD Pipeline (GitHub Actions)
+# ════════════════════════════════════════════════════════════════
+#
+# WHAT IS CI/CD?
+# ─────────────
+# CI (Continuous Integration): Automatically run checks (tests, lint,
+#   type-check) every time code is pushed. Catches bugs BEFORE they
+#   reach production.
+#
+# CD (Continuous Deployment): Automatically deploy to production when
+#   checks pass. Vercel handles CD — it deploys on every merge to main.
+#   This file handles CI only.
+#
+# WHEN DOES THIS RUN?
+# ──────────────────
+# - On every push to `main` branch
+# - On every Pull Request targeting `main`
+#
+# WHAT DOES IT CHECK?
+# ──────────────────
+# 1. TypeScript type-check (catches type errors)
+# 2. ESLint (catches code quality issues)
+# 3. Prisma validation (catches schema errors)
+# 4. Build (catches import errors, missing files)
+#
+# If ANY step fails, the PR shows a red ❌ and can't be merged.
+# ════════════════════════════════════════════════════════════════
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# `concurrency` cancels previous runs of the same workflow if a new
+# push comes in. Saves CI minutes (don't run checks on outdated code).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Lint, Type Check, Build
+    runs-on: ubuntu-latest
+    # ubuntu-latest = a fresh Linux VM. GitHub provides this for free.
+
+    steps:
+      # Step 1: Get the code
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # Downloads your repo into the VM.
+
+      # Step 2: Set up Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          # cache: "npm" → caches node_modules between runs.
+          # Without this, npm install takes ~30s every run.
+          # With cache, it takes ~3s. Saves CI minutes.
+
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        run: npm ci
+        # `npm ci` (not `npm install`) is for CI environments.
+        # Differences:
+        # - Deletes node_modules first (clean install)
+        # - Installs EXACT versions from package-lock.json
+        # - Fails if package-lock.json is out of sync
+        # - Faster than npm install
+
+      # Step 4: Generate Prisma client (needed for type-check)
+      - name: Generate Prisma client
+        run: npx prisma generate
+        # Prisma generates TypeScript types from schema.prisma.
+        # Without this, `tsc` would fail because it can't find
+        # types like `User`, `WorkoutSession`, etc.
+
+      # Step 5: TypeScript type-check
+      - name: Type check
+        run: npx tsc --noEmit
+        # --noEmit → only CHECK types, don't output JavaScript files.
+        # This is a compile-time check, not a build.
+
+      # Step 6: ESLint
+      - name: Lint
+        run: npm run lint
+
+      # Step 7: Prisma schema validation
+      - name: Validate Prisma schema
+        run: npx prisma validate
+        # Checks schema.prisma for syntax errors, invalid relations,
+        # missing fields, etc. Catches DB schema bugs early.
+
+      # Step 8: Next.js build (the most thorough check)
+      - name: Build
+        run: npm run build
+        env:
+          # These are FAKE values — just enough for the build to succeed.
+          # The build doesn't actually connect to Supabase or Sentry.
+          # It just checks that all imports resolve and components compile.
+          NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder-key"
+          SENTRY_DSN: ""

@@ -1,65 +1,84 @@
-import Image from "next/image";
+/**
+ * Landing Page (Server Component — SSR)
+ * ═════════════════════════════════════
+ *
+ * WHY SSR FOR THE LANDING PAGE?
+ * ─────────────────────────────
+ * The landing page is the first thing Google's crawler sees.
+ * SSR (Server-Side Rendering) means the HTML is fully built
+ * on the server before being sent to the browser. Google can
+ * index the content immediately. Client-rendered pages (CSR)
+ * send empty HTML + JavaScript — Google sometimes struggles
+ * to index those.
+ *
+ * This page does NOT have "use client" → it's a Server Component.
+ * No React hooks, no browser APIs. Pure HTML output.
+ */
+import Link from "next/link";
+import { Dumbbell } from "lucide-react";
+import { APP_NAME } from "@/lib/utils/constants";
 
-export default function Home() {
+export default function LandingPage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* ── Header ── */}
+      <header className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Dumbbell className="text-primary" size={28} />
+          <span className="text-xl font-bold font-[family-name:var(--font-outfit)]">
+            {APP_NAME}
+          </span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        <div className="flex gap-3">
+          <Link
+            href="/login"
+            className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            Log in
+          </Link>
+          <Link
+            href="/signup"
+            className="px-4 py-2 text-sm bg-primary text-background rounded-lg hover:bg-primary-hover transition-colors font-medium"
           >
-            Documentation
-          </a>
+            Sign up
+          </Link>
         </div>
+      </header>
+
+      {/* ── Hero Section ── */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 text-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1 mb-6 rounded-full bg-primary-muted text-primary text-sm font-medium">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+          </span>
+          Built for Indian gym-goers
+        </div>
+
+        <h1 className="text-4xl sm:text-5xl font-bold font-[family-name:var(--font-outfit)] leading-tight mb-4">
+          Track workouts.{" "}
+          <span className="text-primary">Log nutrition.</span>
+          <br />
+          See real progress.
+        </h1>
+
+        <p className="text-text-secondary text-lg max-w-md mb-8">
+          {APP_NAME} understands Indian food, household units, and how you
+          actually work out. No more guessing calories.
+        </p>
+
+        <Link
+          href="/signup"
+          className="px-8 py-3 bg-primary text-background rounded-lg hover:bg-primary-hover transition-colors font-semibold text-lg shadow-lg"
+        >
+          Get started — it&apos;s free
+        </Link>
       </main>
+
+      {/* ── Footer ── */}
+      <footer className="text-center py-6 text-text-muted text-sm border-t border-border">
+        © {new Date().getFullYear()} {APP_NAME}. Track honestly. Train smart.
+      </footer>
     </div>
   );
 }
