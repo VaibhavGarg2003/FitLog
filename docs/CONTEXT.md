@@ -2,8 +2,8 @@
 
 > **Purpose**: This file captures the complete context of the FitLog project so that any new chat session can pick up exactly where we left off. It includes every decision made, every discussion point, and every answer given across our full conversation.
 >
-> **Last Updated**: July 7, 2026 (Step 4: AI / Intelligence — COMPLETED)
-> **Conversation IDs**: 2f0a58b4 (planning), be043ece (Step 1 + Step 2 build + Engine Audit + Step 3 Features + Step 4 AI)
+> **Last Updated**: July 8, 2026 (Post-Step 4: Bug Fixes + GitHub/Vercel Deployment)
+> **Conversation IDs**: 2f0a58b4 (planning), be043ece (Step 1 + Step 2 build + Engine Audit + Step 3 Features + Step 4 AI + Bug Fixes + Deployment)
 
 ---
 
@@ -22,6 +22,9 @@
 - ✅ **Step 2: Core Data — COMPLETED (July 6, 2026)**
 - ✅ **Step 3: Features — COMPLETED (July 7, 2026)**
 - ✅ **Step 4: AI / Intelligence — COMPLETED (July 7, 2026)**
+- ✅ **Post-Step 4 Bug Fixes — COMPLETED (July 8, 2026)**
+- ✅ **GitHub repository created and code pushed (July 8, 2026)**
+- ⏳ **Vercel deployment in progress (July 8, 2026)**
 - ⏳ **Next: Step 5: Polish (animations, PWA, responsive audit, E2E tests)**
 
 ---
@@ -1085,3 +1088,240 @@ User types "2 rotis with dal and curd" on Nutrition Page
 - `npx prisma generate` → Client types include WeeklyInsight ✅
 - Build script updated for production safety ✅
 - All new files follow the 5-layer architecture (UI → Hook → API → Service → Repository)
+
+---
+
+## 🐛 Post-Step 4 Bug Fixes (July 8, 2026)
+
+After completing Step 4, the following bugs were discovered during real user testing and fixed.
+
+---
+
+### Fix 1 — Date Strip Showing Past Dates for New Users
+
+**File**: `app/(app)/dashboard/_components/date-strip.tsx`
+
+**Problem**: The original date strip generated the last 6 days + today. A new user who just onboarded saw 6 empty past days before reaching today — confusing.
+
+**Fix**: Changed from `past 6 + today` to `3 days before today + today + 3 days after today`. Today (the center) is labeled "Today" instead of a weekday name. Future dates are shown slightly dimmed. A "← Back to Today" link appears when the user is browsing a past date.
+
+**Related to Timezone Bug (Fix 2 below)**: The date strip also had the timezone bug — `toISOString()` was used for both the "today" marker and each date chip's `dateStr`. Fixed together with Fix 2.
+
+---
+
+### Fix 2 — Critical Timezone Bug: Wrong Date Shown at Midnight (IST)
+
+**File created**: `lib/utils/local-date.ts`  
+**Files fixed**: `stores/ui-store.ts`, `app/(app)/dashboard/_components/date-strip.tsx`
+
+**Problem**: `new Date().toISOString().split("T")[0]` was used everywhere to get "today's date". But `toISOString()` always converts to UTC. At midnight IST (UTC+5:30), UTC is still the previous day. So:
+- At 00:06 IST July 8 → UTC is July 7 18:36 → `toISOString()` returns `"2026-07-07"`
+- `selectedDate` in UIStore initialized to `"2026-07-07"` (wrong)
+- Date chip showed day number `8` (from `getDate()`, local) but stored `"2026-07-07"` (UTC) internally
+- Clicking "Today" chip queried the DB for July 7 data — showing the previous day's workout
+
+**Fix**: Created `lib/utils/local-date.ts` with `localDateStr()` function:
+```typescript
+export function localDateStr(date: Date = new Date()): string {
+  const y = date.getFullYear();   // local year
+  const m = String(date.getMonth() + 1).padStart(2, "0");  // local month
+  const d = String(date.getDate()).padStart(2, "0");        // local day
+  return `${y}-${m}-${d}`;
+}
+```
+`getFullYear()`, `getMonth()`, `getDate()` always use the local timezone. At 00:06 IST July 8, these return 2026, 7, 8 → `"2026-07-08"` (correct).
+
+Replaced all `new Date().toISOString().split("T")[0]` calls in UIStore and DateStrip with `localDateStr()`.
+
+**Impact**: This single fix resolved BOTH the "wrong workout showing" bug AND the "food disappears" nutrition bug (food was being logged to `"2026-07-07"` then re-queried against the "Today" chip which also computed to `"2026-07-07"` — after the fix both use the correct local date).
+
+---
+
+### Fix 3 — Goal Progress Card: "Log your weight" Message on Onboarding Completion
+
+**File**: `app/(app)/dashboard/_components/goal-progress.tsx`  
+**File**: `app/(app)/dashboard/page.tsx`
+
+**Problem**: After completing onboarding (which includes logging weight), the dashboard Goal card showed "Log your weight to start tracking progress." The old component only had two states:
+1. All three values present → full progress bar
+2. Anything missing → error message
+
+`targetWeight` doesn't exist in the current Profile schema (it's planned but not stored yet), so state 2 always triggered.
+
+**Fix**: Rewrote `GoalProgress` with three proper states:
+1. **Full progress**: `currentWeight` + `targetWeight` + `startWeight` all available → progress bar  
+2. **Partial**: `currentWeight` + `goal` available, `targetWeight` missing → shows current weight + goal emoji label (🔥 Lose Fat, 💪 Gain Muscle, etc.) + "Track in Progress tab" hint
+3. **Empty**: nothing → graceful message
+
+Also updated `dashboard/page.tsx` to pass `goal={profile?.goal ?? null}` to the component.
+
+---
+
+### Fix 4 — RPE 1-10 Changed to Intensity 1-5
+
+**File**: `app/(app)/workout/_components/set-logger.tsx`
+
+**Problem**: RPE (Rate of Perceived Exertion) 1-10 is a sports science term most users don't understand. A plain text input with 1-10 range gives no guidance.
+
+**Fix**:
+- Renamed from "RPE" to "Intensity"
+- Changed from a number input to 5 visual pill buttons (1–5)
+- Each pill, when selected, shows the label next to it: `1 — Very Easy`, `2 — Easy`, `3 — Moderate`, `4 — Hard`, `5 — Max Effort`
+- Added a "what's this?" expandable hint that shows all 5 levels with descriptions
+- Field is still optional
+- Stored in DB as the same `rpe` column (integer 1-5 range — no schema change)
+
+---
+
+### Fix 5 — Workout Completion: Blank Screen After Finishing
+
+**File**: `app/(app)/workout/page.tsx`
+
+**Problem**: After tapping "Complete Workout", the session finished and the page went back to the "Start Workout" button with no feedback — like the data disappeared.
+
+**Fix**: Added `workoutCompleted` state. After `finishSession` API call succeeds:
+1. State is set with `{ totalSets, durationMin }`
+2. A celebration card is shown (🎉 Workout Complete! + stats)
+3. Clicking "Done" clears the state and shows "Start Workout" again
+4. Data is already saved in the DB — the card is purely UI state
+
+---
+
+### Fix 6 — Workout Validation: Can Finish Without Logging Sets
+
+**File**: `app/(app)/workout/page.tsx`
+
+**Problem**: The "Finish Workout" button could be tapped immediately after starting a session (0 sets logged) — causing an empty completed session in the DB.
+
+**Fix**: Added `totalSetsInSession` counter that persists across exercise changes within a session. Added `handleAttemptFinish()` function that checks this before showing the duration screen. If 0 sets: shows error message "Please log at least one exercise set before finishing." If sets logged: proceeds normally.
+
+---
+
+### Fix 7 — Workout: No Back Button on Duration Screen
+
+**File**: `app/(app)/workout/page.tsx`
+
+**Problem**: Once the user tapped "Finish Workout" and saw the duration input screen, there was no way to go back and add more exercises.
+
+**Fix**: Added a "← Back" button that calls `setShowFinish(false)`, returning the user to the exercise selector screen within the active session.
+
+---
+
+### Fix 8 — Nutrition Page: Food Items Never Displayed (Critical Bug)
+
+**Files**: `app/(app)/nutrition/page.tsx`, `app/api/nutrition/daily/route.ts`
+
+**Problem**: This was a TWO-LAYER bug:
+
+**Layer 1 (API)**: `GET /api/nutrition/daily?full=true` was called by `useMealsForDate` hook, but the API ignored the `full=true` param and always returned aggregate totals (`{ totalCalories, totalProtein, totalCarbs, totalFat }`). The hook expected `MealEntry[]` but received totals.
+
+**Layer 2 (Page)**: `nutrition/page.tsx` passed `foods={[]}` **hardcoded** to every MealSection. The `useMealsForDate` hook was imported in `use-nutrition.ts` but **never called** in the nutrition page.
+
+**Result**: Food logged via AI showed up in the AI confirmation card for 3 seconds (the parser returned it directly), then the card closed and the MealSection showed empty (`foods={[]}`). Food was correctly saved in the DB — it just never fetched.
+
+**Fixes**:
+1. Updated `GET /api/nutrition/daily` to check `?full=true` param: if true → calls `getMealsForDate()` and returns `MealEntry[]`; if false → returns totals (existing dashboard behavior unchanged)
+2. Updated `nutrition/page.tsx` to call `useMealsForDate(selectedDate)`, loop over MEALS, find each meal's entry, and pass `entry?.mealFoods ?? []` to MealSection
+
+---
+
+### Fix 9 — Sign Out Button Added to Settings
+
+**File**: `app/(app)/settings/page.tsx`
+
+**Problem**: No logout button anywhere in the app. Users couldn't sign out during local development or test different accounts.
+
+**Fix**: Added a "Sign Out" button in the Account section of Settings:
+- Calls `supabase.auth.signOut()` (Supabase browser client — auth operations only, Rule 2)
+- Calls `queryClient.clear()` to clear all TanStack Query cache (so previous user's data doesn't flash)
+- Redirects to `/login` via Next.js `useRouter`
+
+---
+
+## 🚀 Deployment (July 8, 2026)
+
+### GitHub Repository
+
+- **URL**: https://github.com/VaibhavGarg2003/FitLog
+- **Branch**: `main`
+- **Commits**:
+  - `4be35c2` — Initial complete app commit (130 files, 24,918 insertions)
+  - `fce4211` — Fix: remove `prisma migrate deploy` from Vercel build command
+  - `d3cfbc8` — Fix: add placeholder env vars to CI build step
+
+### Vercel Deployment
+
+**Project**: https://vercel.com/vaibhavgarg2003/fitlog
+
+**Deployment issues encountered and fixed:**
+
+| Issue | Cause | Fix |
+|---|---|---|
+| `P1001: Can't reach db at :5432` | Supabase blocks external servers on port 5432 (direct connection) | Changed `DIRECT_URL` in Vercel to pooler URL (port 6543) |
+| 5-minute build hang | `prisma migrate deploy` in build command was running migrations through pooler (wrong — pooler doesn't support DDL) | Removed from `package.json` build script |
+| CI: `datasource.url required` | GitHub Actions CI had no `.env.local` so `DATABASE_URL` was undefined when `prisma.config.ts` loaded | Added placeholder env vars in `.github/workflows/ci.yml` |
+
+**Environment Variables on Vercel** (all set):
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `DATABASE_URL` → **Supabase pooler URL** (port 6543, `pgbouncer=true`)
+- `DIRECT_URL` → **also pooler URL** on Vercel (5432 direct is blocked externally)
+- `GEMINI_API_KEY`
+- `GROQ_API_KEY`
+- `OPENROUTER_API_KEY`
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
+- `CRON_SECRET`
+
+**Important note on DATABASE_URL vs DIRECT_URL:**
+- Locally: `DATABASE_URL` = pooler (6543), `DIRECT_URL` = direct (5432) → `prisma migrate` uses direct
+- On Vercel: BOTH = pooler (6543) → migrations never run on Vercel anyway
+- `prisma migrate` commands are always run **locally** before pushing
+
+**Build command in `package.json`** (current):
+```json
+"build": "prisma generate && next build"
+```
+`prisma migrate deploy` was removed. Migrations run locally with `npm run migrate`.
+
+**Post-deploy step required** (after Vercel URL is known):
+In Supabase → Authentication → URL Configuration:
+- Site URL: `https://your-vercel-url.vercel.app`
+- Redirect URLs: `https://your-vercel-url.vercel.app/auth/callback`
+Without this, Google OAuth redirects to localhost even on the live site.
+
+### Package.json Scripts (current)
+
+```json
+"scripts": {
+  "dev": "next dev",
+  "build": "prisma generate && next build",
+  "start": "next start",
+  "lint": "eslint",
+  "migrate": "prisma migrate deploy",
+  "db:push": "prisma db push",
+  "db:seed": "tsx prisma/seed.ts"
+}
+```
+
+---
+
+## 🔗 How to Resume This Project in a New Chat
+
+1. Point the new chat to this file: `c:\Fitness_app\docs\CONTEXT.md`
+2. Also read: `c:\Fitness_app\docs\production_architecture.md`
+3. Say: "Read the CONTEXT.md file in my workspace docs folder. This is the FitLog fitness website project. Resume from where we left off."
+
+The agent will have full context of:
+- What FitLog is and ALL its features
+- The production-ready tech stack (Next.js 16, TypeScript, Tailwind, Supabase, Prisma 7)
+- Every user requirement and all bug fixes applied
+- GitHub repo: https://github.com/VaibhavGarg2003/FitLog
+- All 4 implementation steps DONE, bug fixes DONE, deployment in progress
+- **Step 5 is next**: animations, PWA, responsive audit, E2E tests
+- The `localDateStr()` utility in `lib/utils/local-date.ts` — always use this instead of `toISOString().split("T")[0]`
+- The `nutrition/page.tsx` now calls `useMealsForDate` — food is visible in all meal sections
+- Workout page has: completion card, 0-set validation, back button from duration screen
+- Settings page has a Sign Out button
+- Date strip is centered on today (3 before + today + 3 after)
