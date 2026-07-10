@@ -58,17 +58,42 @@ export async function createClient() {
 /**
  * Helper: Get the current authenticated user, or null if not logged in.
  *
- * USE THIS in every API route as the FIRST step:
- *   const user = await getAuthUser();
- *   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+ * Uses getUser(), which makes a NETWORK round-trip to the Supabase Auth
+ * server to validate the token. Only use this where you truly need the
+ * freshest, server-verified user object (e.g. right after login). For the
+ * hot path (every API route / page load) prefer getAuthUserId() below.
  */
 export async function getAuthUser() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // getUser() validates the JWT token with Supabase's servers.
-  // It's more secure than getSession() which only decodes the
-  // token locally without verifying it hasn't been tampered with.
   return user;
+}
+
+/**
+ * Helper: Get the current user's id from the JWT, or null if not logged in.
+ *
+ * USE THIS in every API route / server component as the FIRST step:
+ *   const userId = await getAuthUserId();
+ *   if (!userId) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+ *
+ * WHY getClaims() INSTEAD OF getUser()?
+ * ─────────────────────────────────────
+ * getClaims() verifies the JWT signature LOCALLY using the WebCrypto API
+ * (asymmetric signing keys) — no network round-trip. It fetches the public
+ * JWKS once and caches it. getUser() instead calls the Auth server on every
+ * request, adding ~200-400ms per call. Since the token is signed, we can
+ * trust its claims (including `sub` = user id) after a local signature check.
+ *
+ * NOTE: Requires asymmetric JWT signing keys enabled on the Supabase project
+ * (Dashboard → Auth → Signing Keys). If the project still uses the legacy
+ * symmetric secret, getClaims() transparently falls back to a getUser()
+ * network call — correct, just not faster until you migrate the keys.
+ */
+export async function getAuthUserId(): Promise<string | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getClaims();
+  if (error || !data) return null;
+  return data.claims.sub ?? null;
 }

@@ -23,7 +23,7 @@
  * proxy.ts = Edge Runtime = no Prisma. This layout = Server Component = DB ok.
  */
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/supabase/server";
 import { isUserOnboarded } from "@/lib/repositories/profile.repository";
 import { BottomNav } from "@/components/shared/bottom-nav";
 
@@ -32,18 +32,15 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // Belt-and-suspenders auth check (proxy.ts handles this first)
-  if (!user) {
+  // Local JWT verification (no network round-trip). The proxy already
+  // validated auth first; this is the belt-and-suspenders check.
+  const userId = await getAuthUserId();
+  if (!userId) {
     redirect("/login");
   }
 
   // Redirect to onboarding if setup is not complete
-  const onboarded = await isUserOnboarded(user.id);
+  const onboarded = await isUserOnboarded(userId);
   if (!onboarded) {
     redirect("/onboarding");
   }

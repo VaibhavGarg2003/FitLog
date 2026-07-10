@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/supabase/server";
 import {
   startSession,
   getWorkoutsByDate,
@@ -16,15 +16,14 @@ import {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await request.json();
 
-    const session = await startSession(user.id, {
+    const session = await startSession(userId, {
       date: body.date || new Date().toISOString().split("T")[0],
       mode: body.mode || "RECALL",
       splitType: body.splitType,
@@ -42,16 +41,15 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
 
-    const sessions = await getWorkoutsByDate(user.id, date);
+    const sessions = await getWorkoutsByDate(userId, date);
     return NextResponse.json(sessions);
   } catch (error) {
     console.error("[GET /api/workout]", error);

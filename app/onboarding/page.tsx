@@ -15,25 +15,21 @@
 
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/supabase/server";
 import { isUserOnboarded } from "@/lib/repositories/profile.repository";
 import { OnboardingShell } from "./_components/onboarding-shell";
 
 export const metadata: Metadata = { title: "Onboarding — FitLog" };
 
 export default async function OnboardingPage() {
-  // Check auth
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  // Check auth (local JWT verification, no network round-trip)
+  const userId = await getAuthUserId();
+  if (!userId) {
     redirect("/login");
   }
 
   // Check if already onboarded
-  const onboarded = await isUserOnboarded(user.id);
+  const onboarded = await isUserOnboarded(userId);
   if (onboarded) {
     redirect("/dashboard");
   }

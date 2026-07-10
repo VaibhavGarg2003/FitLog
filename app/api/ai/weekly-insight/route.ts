@@ -30,23 +30,19 @@
  */
 
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/supabase/server";
 import { generateWeeklyInsight } from "@/lib/services/ai.service";
 import { checkInsightLimit } from "@/lib/middleware/rate-limit";
 
 export async function GET() {
   // 1. Auth check
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const userId = await getAuthUserId();
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   // 2. Rate limit check
-  const rateLimit = await checkInsightLimit(user.id);
+  const rateLimit = await checkInsightLimit(userId);
   if (rateLimit.limited) {
     return NextResponse.json(
       {
@@ -60,7 +56,7 @@ export async function GET() {
 
   // 3. Generate or return cached insight
   try {
-    const result = await generateWeeklyInsight(user.id);
+    const result = await generateWeeklyInsight(userId);
     return NextResponse.json(result);
   } catch (error: unknown) {
     const message =

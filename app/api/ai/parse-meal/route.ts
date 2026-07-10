@@ -34,23 +34,19 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/supabase/server";
 import { parseMealText } from "@/lib/services/ai.service";
 import { checkMealParserLimit } from "@/lib/middleware/rate-limit";
 
 export async function POST(request: NextRequest) {
   // 1. Auth check
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const userId = await getAuthUserId();
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   // 2. Rate limit check
-  const rateLimit = await checkMealParserLimit(user.id);
+  const rateLimit = await checkMealParserLimit(userId);
   if (rateLimit.limited) {
     return NextResponse.json(
       {
@@ -101,7 +97,7 @@ export async function POST(request: NextRequest) {
   // 5. Call AI service
   try {
     const result = await parseMealText(
-      user.id,
+      userId,
       text.trim(),
       mealType as "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK",
       date

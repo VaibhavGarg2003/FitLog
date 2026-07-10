@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/supabase/server";
 import { logSet, finishSession } from "@/lib/services/workout.service";
 import { getProfileByUserId } from "@/lib/repositories/profile.repository";
 
@@ -13,9 +13,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -46,9 +45,8 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -56,10 +54,10 @@ export async function PUT(
     const body = await request.json();
 
     // Get user's weight for calorie burn calculation
-    const profile = await getProfileByUserId(user.id);
+    const profile = await getProfileByUserId(userId);
     const userWeightKg = profile?.weightKg ?? 70;
 
-    const session = await finishSession(sessionId, user.id, {
+    const session = await finishSession(sessionId, userId, {
       durationMin: body.durationMin,
       rpe: body.rpe,
       userWeightKg,

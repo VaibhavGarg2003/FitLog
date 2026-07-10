@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/supabase/server";
 import {
   recordWeight,
   getProgressData,
@@ -15,9 +15,8 @@ import {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -30,7 +29,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const log = await recordWeight(user.id, {
+    const log = await recordWeight(userId, {
       date: body.date || new Date().toISOString().split("T")[0],
       weightKg: body.weightKg,
       notes: body.notes,
@@ -48,13 +47,12 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const progress = await getProgressData(user.id);
+    const progress = await getProgressData(userId);
     return NextResponse.json(progress);
   } catch (error) {
     console.error("[GET /api/progress/weight]", error);

@@ -16,15 +16,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/supabase/server";
 import { getDailyTotals, getMealsForDate } from "@/lib/services/nutrition.service";
 
 export async function GET(request: NextRequest) {
   try {
     // 1. Auth check
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -36,11 +35,11 @@ export async function GET(request: NextRequest) {
     // 3. Return full meal entries (nutrition page) or just totals (dashboard)
     if (full) {
       // Full mode: return MealEntry[] with MealFood items nested
-      const meals = await getMealsForDate(user.id, date);
+      const meals = await getMealsForDate(userId, date);
       return NextResponse.json(meals);
     } else {
       // Summary mode: return aggregated totals only
-      const totals = await getDailyTotals(user.id, date);
+      const totals = await getDailyTotals(userId, date);
       return NextResponse.json(totals);
     }
   } catch (error) {

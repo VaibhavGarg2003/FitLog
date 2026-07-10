@@ -12,7 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/supabase/server";
 import {
   logFoodItem,
   logCustomFood,
@@ -22,9 +22,8 @@ import {
 export async function POST(request: NextRequest) {
   try {
     // 1. Auth check
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -34,7 +33,7 @@ export async function POST(request: NextRequest) {
     // 3. Route to correct service based on whether it's a DB food or custom
     if (body.foodId) {
       // Database food — service calculates calories from quantity
-      const result = await logFoodItem(user.id, {
+      const result = await logFoodItem(userId, {
         date: body.date,
         mealType: body.mealType,
         foodId: body.foodId,
@@ -44,7 +43,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result, { status: 201 });
     } else {
       // Custom food — user provides all nutrition data
-      const result = await logCustomFood(user.id, {
+      const result = await logCustomFood(userId, {
         date: body.date,
         mealType: body.mealType,
         name: body.name,
@@ -69,9 +68,8 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     // 1. Auth check
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -82,7 +80,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // 3. Delete (ownership verified inside repository)
-    await removeFood(body.mealFoodId, user.id);
+    await removeFood(body.mealFoodId, userId);
     return NextResponse.json({ deleted: true });
   } catch (error) {
     console.error("[DELETE /api/nutrition/log]", error);

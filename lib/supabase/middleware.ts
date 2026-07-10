@@ -65,12 +65,13 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // CRITICAL: getUser() validates the token with Supabase.
-  // This call also triggers token refresh if needed.
-  // Do NOT use getSession() here — it doesn't validate the token.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims() verifies the JWT signature LOCALLY (WebCrypto, no network
+  // round-trip) and refreshes the session if the token is about to expire —
+  // so cookies still get rotated via the setAll callback above. This runs on
+  // EVERY request through the proxy, so avoiding the getUser() network call
+  // here is the single biggest latency win.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims ?? null;
 
   return { user, supabaseResponse };
 }

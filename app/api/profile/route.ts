@@ -10,25 +10,20 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUserId } from "@/lib/supabase/server";
 import { getUserProfile, recalculateProfile } from "@/lib/services/profile.service";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    const profile = await getUserProfile(user.id);
+    const profile = await getUserProfile(userId);
 
     if (!profile) {
       return NextResponse.json(
@@ -62,13 +57,8 @@ export async function GET() {
  */
 export async function PUT(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const userId = await getAuthUserId();
+    if (!userId) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -77,7 +67,7 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json();
 
-    const updated = await recalculateProfile(user.id, {
+    const updated = await recalculateProfile(userId, {
       weightKg: body.weightKg,
       activityLevel: body.activityLevel,
       goal: body.goal,
