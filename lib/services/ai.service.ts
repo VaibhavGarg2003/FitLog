@@ -212,6 +212,34 @@ function formatDate(d: Date): string {
 }
 
 /**
+ * Read the cached weekly insight for the current week — WITHOUT generating.
+ *
+ * WHY THIS EXISTS (separate from generateWeeklyInsight):
+ * ─────────────────────────────────────────────────────
+ * Reading an already-generated insight from the database is CHEAP and should
+ * be unlimited. Generating a NEW one calls the LLM and is EXPENSIVE, so only
+ * generation is rate-limited. Keeping "read" and "generate" as two functions
+ * lets the API route serve a cached insight to a user who has exhausted their
+ * weekly generation quota — instead of blocking them behind a 429.
+ *
+ * Returns the cached insight, or null if none exists for this week yet.
+ */
+export async function getCachedWeeklyInsight(userId: string) {
+  const weekStart = getWeekStart();
+  const existing = await getInsightForWeek(userId, weekStart);
+  if (!existing) return null;
+
+  return {
+    insight: existing.content,
+    highlights: (existing.highlights as string[]) ?? [],
+    suggestion: existing.suggestion,
+    weekStart: formatDate(weekStart),
+    provider: existing.provider,
+    cached: true,
+  };
+}
+
+/**
  * Generate a personalised weekly coaching insight.
  *
  * FLOW:

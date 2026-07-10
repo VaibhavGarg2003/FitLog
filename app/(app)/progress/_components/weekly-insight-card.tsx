@@ -25,10 +25,14 @@
 
 "use client";
 
-import { useWeeklyInsight } from "@/lib/hooks/use-weekly-insight";
+import {
+  useWeeklyInsight,
+  useGenerateWeeklyInsight,
+} from "@/lib/hooks/use-weekly-insight";
 
 export function WeeklyInsightCard() {
   const { data, isLoading, isError, error } = useWeeklyInsight();
+  const generate = useGenerateWeeklyInsight();
 
   // Loading skeleton
   if (isLoading) {
@@ -67,8 +71,38 @@ export function WeeklyInsightCard() {
     );
   }
 
-  // No data yet
-  if (!data) return null;
+  // No insight generated for this week yet → offer a Generate button.
+  // The LLM only runs when the user explicitly asks — never automatically.
+  if (!data || !data.generated) {
+    return (
+      <div className="bg-surface border border-border rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-lg">🤖</span>
+          <h3 className="font-semibold text-sm text-text-primary">
+            Weekly Insight
+          </h3>
+        </div>
+        <p className="text-sm text-text-muted mb-3">
+          Get an AI summary of this week&apos;s nutrition and training.
+        </p>
+
+        {generate.isError && (
+          <p className="text-xs text-red-400 mb-2">
+            {generate.error?.message || "Could not generate. Try again later."}
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={() => generate.mutate()}
+          disabled={generate.isPending}
+          className="text-sm font-medium bg-primary/10 border border-primary/20 text-primary rounded-lg px-4 py-2 disabled:opacity-60"
+        >
+          {generate.isPending ? "Generating…" : "✨ Generate insight"}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-surface border border-primary/20 rounded-xl p-4 space-y-3">

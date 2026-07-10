@@ -51,11 +51,19 @@ export function QueryProvider({ children }: { children: ReactNode }) {
             // Network glitches happen. 1 retry is usually enough.
             retry: 1,
 
-            // refetchOnWindowFocus: when user switches back to the tab,
-            // should we refetch data? Yes — they might have been away
-            // for minutes and data could be outdated (new meals logged
-            // from another device, etc.)
-            refetchOnWindowFocus: true,
+            // refetchOnWindowFocus: refetch every active query whenever the
+            // tab regains focus. This SOUNDS helpful, but in practice it
+            // caused a refetch storm — clicking into DevTools and back, or
+            // alt-tabbing, refired `profile` + `daily` + every other query,
+            // producing the duplicate 5-6s requests seen in the network tab.
+            //
+            // We turn it OFF and rely on explicit invalidation instead: the
+            // log/delete/finish mutations already invalidate the exact caches
+            // they change (see lib/hooks/use-nutrition.ts etc.), so the UI
+            // stays fresh after writes without polling on every focus event.
+            // Trade-off: data changed on ANOTHER device won't auto-refresh
+            // when you refocus this tab — acceptable for a single-user app.
+            refetchOnWindowFocus: false,
           },
           mutations: {
             // retry: 0 for mutations (writes).

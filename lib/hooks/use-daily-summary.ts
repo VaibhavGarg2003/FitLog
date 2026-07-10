@@ -28,7 +28,11 @@ export function useDailySummary(date: string) {
       if (!res.ok) throw new Error("Failed to fetch daily summary");
       return res.json();
     },
-    staleTime: 30 * 1000, // 30 seconds — refreshes often during active logging
+    // 2 minutes. The old 30s meant every page revisit after half a minute
+    // refetched — a needless request, because logging food already invalidates
+    // this exact key (useLogFood/useDeleteFood), so the cache is kept fresh by
+    // the write path, not by a short timer.
+    staleTime: 2 * 60 * 1000,
     retry: 1,
   });
 }

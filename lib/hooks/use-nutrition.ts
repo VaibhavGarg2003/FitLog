@@ -47,7 +47,8 @@ export function useMealsForDate(date: string) {
       if (!res.ok) throw new Error("Failed to fetch meals");
       return res.json();
     },
-    staleTime: 30 * 1000,
+    // 2 minutes — kept fresh by mutation invalidation, not by a short timer.
+    staleTime: 2 * 60 * 1000,
   });
 }
 
