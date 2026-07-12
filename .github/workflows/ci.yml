@@ -56,6 +56,11 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
+          # Create the `shadow` database at container init — the drift check
+          # points SHADOW_DATABASE_URL at it, and Prisma won't create it
+          # itself (P1003 "Database `shadow` does not exist" otherwise).
+          # The default `postgres` maintenance DB still exists alongside it.
+          POSTGRES_DB: shadow
         ports:
           - 5432:5432
         options: >-
