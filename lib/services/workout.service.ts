@@ -26,6 +26,7 @@ import {
 import {
   createSession,
   getSessionsByDate,
+  findSessionForUser,
   addSet,
   completeSession,
   getWorkoutBurnByDate,
@@ -48,9 +49,15 @@ export async function startSession(
 
 /**
  * Add a set to an active session.
+ *
+ * SECURITY: verifies the session belongs to `userId` before writing.
+ * Without this check, any logged-in user could add sets to another
+ * user's session just by knowing its id (IDOR). Throws "Not found"
+ * (not "Forbidden") so we never reveal that the session exists.
  */
 export async function logSet(
   sessionId: string,
+  userId: string,
   data: {
     exerciseId: string;
     setNumber: number;
@@ -60,6 +67,11 @@ export async function logSet(
     isWarmup?: boolean;
   }
 ) {
+  const session = await findSessionForUser(sessionId, userId);
+  if (!session) throw new Error("Session not found");
+  if (session.status !== "IN_PROGRESS") {
+    throw new Error("Cannot add sets to a completed session");
+  }
   return addSet(sessionId, data);
 }
 
@@ -82,9 +94,13 @@ export async function finishSession(
     notes?: string;
   }
 ) {
-  // Get all sets in this session to calculate burn
-  const sessions = await getSessionsByDate(userId, new Date().toISOString().split("T")[0]);
-  const session = sessions.find((s) => s.id === sessionId);
+  // Get this session (owner-scoped) to calculate burn.
+  // SECURITY + BUG FIX: previously this looked up sessions by the SERVER's
+  // current UTC date and searched for a matching id. That (a) let the date
+  // mismatch hide a user's own session near midnight, and (b) relied on the
+  // date filter for ownership. Fetching directly by (id + userId) fixes both:
+  // it's a real ownership check and it doesn't care what day it is.
+  const session = await findSessionForUser(sessionId, userId);
 
   if (!session) throw new Error("Session not found");
 

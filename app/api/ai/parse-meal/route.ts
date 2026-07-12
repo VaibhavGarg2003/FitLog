@@ -34,9 +34,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { parseMealText } from "@/lib/services/ai.service";
 import { checkMealParserLimit } from "@/lib/middleware/rate-limit";
+import { parseMealRequestSchema } from "@/lib/validators/api.schema";
+import { UserFacingError } from "@/lib/utils/errors";
 
 export async function POST(request: NextRequest) {
   // 1. Auth check
@@ -45,7 +48,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 2. Rate limit check
+  // 2. Parse + validate the body BEFORE the rate limit.
+  //    Validation is free; the rate limit meters the scarce resource (the
+  //    LLM call). Checking the limit first meant a buggy client burned its
+  //    15 daily tokens on malformed requests that never reached the LLM.
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid request body" },
+      { status: 400 }
+    );
+  }
+
+  const parsed = parseMealRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        error:
+          z.flattenError(parsed.error).fieldErrors.text?.[0] ??
+          "Invalid meal request",
+        details: z.flattenError(parsed.error).fieldErrors,
+      },
+      { status: 400 }
+    );
+  }
+
+  // 3. Rate limit check — only valid requests spend a token
   const rateLimit = await checkMealParserLimit(userId);
   if (rateLimit.limited) {
     return NextResponse.json(
@@ -58,57 +88,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 3. Parse request body
-  let body: { text?: string; mealType?: string; date?: string };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { error: "Invalid request body" },
-      { status: 400 }
-    );
-  }
-
-  const { text, mealType, date } = body;
-
-  // 4. Validate
-  if (!text || typeof text !== "string" || text.trim().length < 3) {
-    return NextResponse.json(
-      { error: "Please describe your meal (at least 3 characters)" },
-      { status: 400 }
-    );
-  }
-
-  const validMealTypes = ["BREAKFAST", "LUNCH", "DINNER", "SNACK"];
-  if (!mealType || !validMealTypes.includes(mealType)) {
-    return NextResponse.json(
-      { error: "Invalid meal type" },
-      { status: 400 }
-    );
-  }
-
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return NextResponse.json(
-      { error: "Invalid date format (use YYYY-MM-DD)" },
-      { status: 400 }
-    );
-  }
-
-  // 5. Call AI service
+  // 4. Call AI service
   try {
     const result = await parseMealText(
       userId,
-      text.trim(),
-      mealType as "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK",
-      date
+      parsed.data.text,
+      parsed.data.mealType,
+      parsed.data.date
     );
 
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : "AI parsing failed";
+    // Full details go to the server log; the client only ever sees messages
+    // written FOR users (UserFacingError) — internal errors can carry
+    // provider/infra details that must not leak.
+    console.error("[AI Parse Meal] Error:", error);
 
-    console.error("[AI Parse Meal] Error:", message);
+    const message =
+      error instanceof UserFacingError
+        ? error.message
+        : "AI parsing failed. Please try again or log your meal manually.";
 
     return NextResponse.json({ error: message }, { status: 500 });
   }

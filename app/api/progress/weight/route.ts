@@ -7,11 +7,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { getAuthUserId } from "@/lib/supabase/server";
 import {
   recordWeight,
   getProgressData,
 } from "@/lib/services/progress.service";
+import { logWeightSchema } from "@/lib/validators/api.schema";
+import { localDateStr } from "@/lib/utils/local-date";
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,19 +23,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
 
-    if (!body.weightKg || body.weightKg < 30 || body.weightKg > 300) {
+    const parsed = logWeightSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Weight must be between 30 and 300 kg" },
+        {
+          error: "Invalid weight data",
+          details: z.flattenError(parsed.error).fieldErrors,
+        },
         { status: 400 }
       );
     }
 
     const log = await recordWeight(userId, {
-      date: body.date || new Date().toISOString().split("T")[0],
-      weightKg: body.weightKg,
-      notes: body.notes,
+      // Client normally sends its local date; localDateStr() is the fallback
+      // (never toISOString — that's the UTC midnight bug, CONTEXT.md).
+      date: parsed.data.date ?? localDateStr(),
+      weightKg: parsed.data.weightKg,
+      notes: parsed.data.notes,
     });
 
     return NextResponse.json(log, { status: 201 });
@@ -45,7 +59,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const userId = await getAuthUserId();
     if (!userId) {

@@ -33,6 +33,16 @@ const isConfigured = !!(
   process.env.UPSTASH_REDIS_REST_TOKEN
 );
 
+// FAIL-OPEN is a deliberate choice: a fitness app should degrade, not die,
+// when Redis blips (a bank would fail closed). But prod running with the
+// limiter silently OFF must be loud — it means the LLM budget is unguarded.
+if (!isConfigured && process.env.NODE_ENV === "production") {
+  console.warn(
+    "[rate-limit] Upstash Redis is NOT configured — rate limiting is " +
+      "DISABLED in production. AI endpoints are unmetered."
+  );
+}
+
 /**
  * Create a Redis client.
  * Only created if environment variables are set.

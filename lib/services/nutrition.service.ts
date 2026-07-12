@@ -17,13 +17,14 @@
  * This ensures the math is done server-side (tamper-proof).
  */
 
-import { prisma } from "@/lib/supabase/prisma";
 import {
   getDailySummary,
   getMealEntriesByDate,
   logFood,
+  logFoodsBatch,
   deleteMealFood,
 } from "@/lib/repositories/nutrition.repository";
+import { findFoodById } from "@/lib/repositories/food.repository";
 
 /**
  * Log a food item with automatic calorie/macro calculation.
@@ -39,9 +40,7 @@ export async function logFoodItem(
   }
 ) {
   // Fetch the food record to get nutrition per 100g
-  const food = await prisma.food.findUnique({
-    where: { id: data.foodId },
-  });
+  const food = await findFoodById(data.foodId);
 
   if (!food) throw new Error("Food not found");
 
@@ -90,6 +89,30 @@ export async function logCustomFood(
     ...data,
     isRestaurant: false,
   });
+}
+
+/**
+ * Log many pre-calculated food rows under one meal in a single transaction.
+ * Used by the AI meal parser — the whole meal succeeds or fails atomically.
+ */
+export async function logMealFoods(
+  userId: string,
+  data: {
+    date: string;
+    mealType: "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK";
+    foods: Array<{
+      foodId?: string | null;
+      name: string;
+      quantity: number;
+      unit: string;
+      calories: number;
+      protein: number;
+      carbs: number;
+      fat: number;
+    }>;
+  }
+) {
+  return logFoodsBatch(userId, data);
 }
 
 /**

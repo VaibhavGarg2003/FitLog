@@ -4,9 +4,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { logSet, finishSession } from "@/lib/services/workout.service";
 import { getProfileByUserId } from "@/lib/repositories/profile.repository";
+import {
+  logSetSchema,
+  finishSessionSchema,
+} from "@/lib/validators/api.schema";
 
 export async function POST(
   request: NextRequest,
@@ -19,20 +24,35 @@ export async function POST(
     }
 
     const { id: sessionId } = await params;
-    const body = await request.json();
 
-    const set = await logSet(sessionId, {
-      exerciseId: body.exerciseId,
-      setNumber: body.setNumber,
-      weight: body.weight,
-      reps: body.reps,
-      rpe: body.rpe,
-      isWarmup: body.isWarmup,
-    });
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const parsed = logSetSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: "Invalid set data",
+          details: z.flattenError(parsed.error).fieldErrors,
+        },
+        { status: 400 }
+      );
+    }
+
+    const set = await logSet(sessionId, userId, parsed.data);
 
     return NextResponse.json(set, { status: 201 });
   } catch (error) {
     console.error("[POST /api/workout/[id]/sets]", error);
+    // Ownership failures surface as "Session not found" → 404 (don't reveal
+    // whether the id exists for another user).
+    if (error instanceof Error && error.message === "Session not found") {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
     return NextResponse.json(
       { error: "Failed to add set" },
       { status: 500 }
@@ -51,22 +71,40 @@ export async function PUT(
     }
 
     const { id: sessionId } = await params;
-    const body = await request.json();
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const parsed = finishSessionSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: "Invalid session data",
+          details: z.flattenError(parsed.error).fieldErrors,
+        },
+        { status: 400 }
+      );
+    }
 
     // Get user's weight for calorie burn calculation
     const profile = await getProfileByUserId(userId);
     const userWeightKg = profile?.weightKg ?? 70;
 
     const session = await finishSession(sessionId, userId, {
-      durationMin: body.durationMin,
-      rpe: body.rpe,
+      ...parsed.data,
       userWeightKg,
-      notes: body.notes,
     });
 
     return NextResponse.json(session);
   } catch (error) {
     console.error("[PUT /api/workout/[id]/sets]", error);
+    if (error instanceof Error && error.message === "Session not found") {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
     return NextResponse.json(
       { error: "Failed to finish session" },
       { status: 500 }

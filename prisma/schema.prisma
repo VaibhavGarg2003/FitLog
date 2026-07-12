@@ -229,6 +229,12 @@ model MealEntry {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   mealFoods   MealFood[]
 
+  @@unique([userId, date, mealType])
+  // One entry per user per day per meal slot. Concurrent "log food" requests
+  // (double-tap on flaky WiFi) both pass a find-then-create check and create
+  // duplicate LUNCH entries — the constraint makes the database arbitrate.
+  // Code uses upsert against this constraint (see nutrition.repository.ts).
+
   @@index([userId, date])
   @@map("meal_entries")
 }

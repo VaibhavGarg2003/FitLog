@@ -72,6 +72,37 @@ export async function getSessionsByDate(userId: string, date: string) {
 }
 
 /**
+ * Fetch a single session ONLY if it belongs to the given user.
+ * Returns null if the session doesn't exist or isn't owned by the user.
+ *
+ * This is the ownership gate used by write operations (add set, finish).
+ * Looking up by (id + userId) means another user's session id simply
+ * returns null — no data leaks, and the caller can't act on it.
+ */
+export async function findSessionForUser(sessionId: string, userId: string) {
+  return prisma.workoutSession.findFirst({
+    where: { id: sessionId, userId },
+    include: {
+      exerciseSets: {
+        include: {
+          exercise: {
+            select: {
+              id: true,
+              name: true,
+              muscleGroup: true,
+              category: true,
+              metValue: true,
+              isCompound: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+}
+
+/**
  * Add a set to a workout session.
  */
 export async function addSet(

@@ -19,6 +19,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { localDateStr } from "@/lib/utils/local-date";
 
 interface WeeklyInsightData {
   /** false = no insight generated for this week yet (show the Generate button) */
@@ -40,7 +41,10 @@ export function useWeeklyInsight() {
   return useQuery<WeeklyInsightData>({
     queryKey: QUERY_KEY,
     queryFn: async () => {
-      const res = await fetch("/api/ai/weekly-insight");
+      // Send the USER'S local date — the server runs in UTC and must not
+      // compute "this week" from its own clock (Mon 9am IST is still Sunday
+      // in UTC, which would serve last week's insight as "this week").
+      const res = await fetch(`/api/ai/weekly-insight?date=${localDateStr()}`);
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || "Failed to load weekly insight");
@@ -63,7 +67,9 @@ export function useGenerateWeeklyInsight() {
 
   return useMutation<WeeklyInsightData, Error>({
     mutationFn: async () => {
-      const res = await fetch("/api/ai/weekly-insight", { method: "POST" });
+      const res = await fetch(`/api/ai/weekly-insight?date=${localDateStr()}`, {
+        method: "POST",
+      });
       const data = await res.json();
       if (!res.ok) {
         // Surfaces the 429 "limit reached" message to the card.

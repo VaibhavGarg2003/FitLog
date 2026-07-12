@@ -93,11 +93,12 @@ export function useDeleteFood(date: string) {
 
   return useMutation({
     mutationFn: async (mealFoodId: string) => {
-      const res = await fetch("/api/nutrition/log", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mealFoodId }),
-      });
+      // id in the URL, not a DELETE body — proxies/caches may drop DELETE
+      // bodies, and a resource identifier belongs in the path anyway.
+      const res = await fetch(
+        `/api/nutrition/log/${encodeURIComponent(mealFoodId)}`,
+        { method: "DELETE" }
+      );
       if (!res.ok) throw new Error("Failed to delete food");
       return res.json();
     },

@@ -43,9 +43,17 @@ function createPrismaClient(): PrismaClient {
   // Pool reuses existing connections (fast).
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    max: 5, // Maximum 5 concurrent connections
-    // Supabase free tier allows ~20 connections.
-    // We use 5 because serverless functions share the pool.
+    max: 2,
+    // EACH serverless instance is an isolated process with its OWN pool —
+    // instances share nothing. Ten concurrent instances × max = that many
+    // real connection attempts. The actual concurrency control is Supabase's
+    // pooler (pgbouncer) in front of Postgres, which lends a small set of
+    // real connections out per-query; this per-instance max just needs to
+    // cover one request's parallel queries. 2 is plenty.
+    //
+    // (Related: migrations can NOT run through the pooler — transaction-mode
+    // pgbouncer can't hold the session state DDL needs. That's why
+    // migrate deploy uses DIRECT_URL, port 5432.)
   });
 
   // Step 2: Create the adapter that bridges pg ↔ Prisma

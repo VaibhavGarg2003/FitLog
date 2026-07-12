@@ -18,7 +18,9 @@
  * ───────────────
  * - Provider is skipped if its API key is empty/missing
  * - Provider is skipped if request requires images and provider is text-only
- * - Each provider has its own timeout (Gemini 8s, Groq 4s, OpenRouter 6s)
+ * - Timeouts are a BUDGET, not per-provider choices: Vercel Hobby kills the
+ *   function at ~10s, so the worst-case chain (all three time out in
+ *   sequence) must stay under ~8s → Gemini 4s + Groq 2s + OpenRouter 2s.
  */
 
 import { callGemini } from "./gemini";

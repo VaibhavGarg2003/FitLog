@@ -14,7 +14,9 @@
 
 const OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_TIMEOUT_MS = 6000;
+// Part of the 8s chain budget (Gemini 4s + Groq 2s + OpenRouter 2s) — see
+// gemini.ts for the full derivation from the Vercel 10s ceiling.
+const OPENROUTER_TIMEOUT_MS = 2000;
 
 interface OpenRouterRequest {
   systemPrompt: string;

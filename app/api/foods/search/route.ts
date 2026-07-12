@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/supabase/server";
-import { prisma } from "@/lib/supabase/prisma";
+import { searchFoodsByName } from "@/lib/repositories/food.repository";
 
 export async function GET(request: Request) {
   try {
@@ -32,34 +32,8 @@ export async function GET(request: Request) {
       );
     }
 
-    // Case-insensitive search using Prisma's `contains` with `insensitive` mode
-    const foods = await prisma.food.findMany({
-      where: {
-        OR: [
-          { name: { contains: query, mode: "insensitive" } },
-          { nameHindi: { contains: query, mode: "insensitive" } },
-          { category: { contains: query, mode: "insensitive" } },
-        ],
-      },
-      take: limit,
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        nameHindi: true,
-        category: true,
-        caloriesPer100g: true,
-        proteinPer100g: true,
-        carbsPer100g: true,
-        fatPer100g: true,
-        fiberPer100g: true,
-        defaultUnit: true,
-        defaultQuantity: true,
-        defaultGrams: true,
-        restaurantMultiplier: true,
-        source: true,
-      },
-    });
+    // Case-insensitive search — query logic lives in the food repository
+    const foods = await searchFoodsByName(query, limit);
 
     return NextResponse.json({ foods, count: foods.length });
   } catch (error) {

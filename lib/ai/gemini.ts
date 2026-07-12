@@ -19,7 +19,11 @@
 
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_TIMEOUT_MS = 8000; // 8 seconds max wait
+// TIMEOUT BUDGET (top-down from the platform ceiling, Rule 9):
+// Vercel Hobby kills functions at ~10s. Reserve ~2s for DB writes and the
+// response → 8s for the WHOLE AI chain → Gemini 4s + Groq 2s + OpenRouter 2s.
+// Per-provider timeouts must never be chosen independently — they sum.
+const GEMINI_TIMEOUT_MS = 4000;
 
 interface GeminiRequest {
   systemPrompt: string;
@@ -46,7 +50,10 @@ export async function callGemini(request: GeminiRequest): Promise<GeminiResponse
     throw new Error("GEMINI_API_KEY is not configured");
   }
 
-  const url = `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  // Key goes in a HEADER, never the URL — URLs get logged by proxies,
+  // gateways, and error trackers (a Gemini error body containing the URL
+  // would ship the key to Sentry). Headers are stripped from logs.
+  const url = `${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent`;
 
   // Build the content parts array
   // The Gemini API uses a "parts" array inside "contents"
@@ -96,7 +103,10 @@ export async function callGemini(request: GeminiRequest): Promise<GeminiResponse
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });

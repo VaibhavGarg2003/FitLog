@@ -20,12 +20,13 @@
  * format that the manual search flow uses.
  */
 
+import { z } from "zod";
 import { runWithFallback } from "@/lib/ai/fallback";
 import {
   MEAL_PARSER_SYSTEM_PROMPT,
   WEEKLY_INSIGHT_SYSTEM_PROMPT,
 } from "@/lib/ai/prompts";
-import { logFoodItem, logCustomFood } from "@/lib/services/nutrition.service";
+import { logMealFoods } from "@/lib/services/nutrition.service";
 import { getDailySummary } from "@/lib/repositories/nutrition.repository";
 import { getSessionsByDate } from "@/lib/repositories/workout.repository";
 import { getWeightHistory } from "@/lib/repositories/progress.repository";
@@ -34,22 +35,46 @@ import {
   getInsightForWeek,
   saveInsight,
 } from "@/lib/repositories/insight.repository";
-import { prisma } from "@/lib/supabase/prisma";
+import { findFoodCandidates } from "@/lib/repositories/food.repository";
+import { UserFacingError } from "@/lib/utils/errors";
+import { localDateStr } from "@/lib/utils/local-date";
 
 // ─────────────────────────────────────────────────────────────
-// TYPES
+// TYPES & LLM OUTPUT VALIDATION
 // ─────────────────────────────────────────────────────────────
 
-/** A single food item parsed by the LLM */
-interface ParsedFoodItem {
+/**
+ * Schema for ONE food item in the LLM's response.
+ *
+ * THE LLM RESPONSE IS A TRUST BOUNDARY — same as user input. LLMs produce
+ * plausible text, not guaranteed-correct data: quantity can arrive as the
+ * string "two", calories can be hallucinated at 9000/100g. Every numeric
+ * field is coerced and clamped to physically plausible ranges BEFORE any
+ * database write. (Pure fat is ~900 kcal/100g — nothing edible exceeds it.)
+ */
+const parsedFoodItemSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  nameHindi: z.string().max(100).nullish(),
+  quantity: z.coerce.number().positive().max(2000), // grams
+  unit: z.string().max(20).catch("g"),
+  estimatedCaloriesPer100g: z.coerce.number().min(0).max(900),
+  estimatedProteinPer100g: z.coerce.number().min(0).max(100),
+  estimatedCarbsPer100g: z.coerce.number().min(0).max(100),
+  estimatedFatPer100g: z.coerce.number().min(0).max(100),
+});
+
+type ParsedFoodItem = z.infer<typeof parsedFoodItemSchema>;
+
+/** Candidate food row shape used by the match ladder */
+interface FoodCandidate {
+  id: string;
   name: string;
-  nameHindi?: string | null;
-  quantity: number; // in grams
-  unit: string;
-  estimatedCaloriesPer100g: number;
-  estimatedProteinPer100g: number;
-  estimatedCarbsPer100g: number;
-  estimatedFatPer100g: number;
+  nameHindi: string | null;
+  caloriesPer100g: number;
+  proteinPer100g: number;
+  carbsPer100g: number;
+  fatPer100g: number;
+  isVerified: boolean;
 }
 
 /** Result of attempting to log one parsed item */
@@ -72,14 +97,59 @@ export interface MealParseResult {
 // ─────────────────────────────────────────────────────────────
 
 /**
+ * Deterministic food match ladder: exact → prefix → substring.
+ *
+ * WHY NOT findFirst + contains? That returns whichever row the database
+ * happens to produce first — nondeterministic. "roti" could resolve to
+ * "Roti" today and "Aloo Roti" after a re-seed, giving the same meal text
+ * different calories on different days.
+ *
+ * Tiebreak within a tier is stable: verified foods first, then the
+ * SHORTEST name (so the generic "Roti" beats "Aloo Roti"), then alphabetical.
+ */
+function pickBestMatch(
+  item: ParsedFoodItem,
+  candidates: FoodCandidate[]
+): FoodCandidate | null {
+  const name = item.name.toLowerCase();
+  const hindi = item.nameHindi?.toLowerCase();
+
+  const tiers: Array<(f: FoodCandidate) => boolean> = [
+    (f) =>
+      f.name.toLowerCase() === name ||
+      (!!hindi && f.nameHindi?.toLowerCase() === hindi),
+    (f) =>
+      f.name.toLowerCase().startsWith(name) ||
+      (!!hindi && !!f.nameHindi?.toLowerCase().startsWith(hindi)),
+    (f) =>
+      f.name.toLowerCase().includes(name) ||
+      (!!hindi && !!f.nameHindi?.toLowerCase().includes(hindi)),
+  ];
+
+  for (const matches of tiers) {
+    const tier = candidates.filter(matches);
+    if (tier.length > 0) {
+      tier.sort(
+        (a, b) =>
+          Number(b.isVerified) - Number(a.isVerified) ||
+          a.name.length - b.name.length ||
+          a.name.localeCompare(b.name)
+      );
+      return tier[0];
+    }
+  }
+  return null;
+}
+
+/**
  * Parse natural language meal text into structured food log entries.
  *
  * FLOW:
  * 1. Send text to LLM with the meal parser system prompt
- * 2. LLM returns JSON array of food items with gram quantities
- * 3. For each item, try to match against the food database
- * 4. Matched items → logFoodItem() (accurate per-100g data from DB)
- * 5. Unmatched items → logCustomFood() (LLM's estimated nutrition)
+ * 2. Validate the LLM's JSON against a schema (trust boundary — see above)
+ * 3. ONE query fetches candidate foods for ALL parsed names (no N+1)
+ * 4. Match in memory with the deterministic ladder
+ * 5. ONE transaction writes the whole meal — atomic, no half-logged meals
  */
 export async function parseMealText(
   userId: string,
@@ -94,88 +164,94 @@ export async function parseMealText(
   });
 
   if (!aiResult.ok) {
-    throw new Error(aiResult.error);
+    throw new UserFacingError(aiResult.error);
   }
 
-  // 2. Parse LLM JSON response
-  let parsed: { items: ParsedFoodItem[] };
+  // 2. Parse + validate the LLM response (trust boundary)
+  let raw: unknown;
   try {
-    parsed = JSON.parse(aiResult.text);
+    raw = JSON.parse(aiResult.text);
   } catch {
-    throw new Error("AI returned invalid JSON. Please try rephrasing your meal.");
+    throw new UserFacingError(
+      "AI returned invalid JSON. Please try rephrasing your meal."
+    );
   }
 
-  if (!parsed.items || !Array.isArray(parsed.items) || parsed.items.length === 0) {
-    throw new Error("AI could not identify any foods. Please try again or search manually.");
+  const envelope = z.object({ items: z.array(z.unknown()).max(20) }).safeParse(raw);
+  if (!envelope.success || envelope.data.items.length === 0) {
+    throw new UserFacingError(
+      "AI could not identify any foods. Please try again or search manually."
+    );
   }
 
-  // 3. Process each item
+  // Validate items individually: keep the valid ones, drop hallucinated
+  // garbage (negative quantities, 9000-kcal foods) instead of failing the
+  // whole meal because of one bad item.
+  const items = envelope.data.items
+    .map((i) => parsedFoodItemSchema.safeParse(i))
+    .filter((r) => r.success)
+    .map((r) => r.data);
+
+  if (items.length === 0) {
+    throw new UserFacingError(
+      "AI could not identify any foods. Please try again or search manually."
+    );
+  }
+
+  // 3. ONE query for all candidate foods (was: one findFirst per item)
+  const candidates = (await findFoodCandidates(items)) as FoodCandidate[];
+
+  // 4. Match in memory + compute nutrition rows
   const logged: LoggedItem[] = [];
+  const foodRows: Array<{
+    foodId: string | null;
+    name: string;
+    quantity: number;
+    unit: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  }> = [];
 
-  for (const item of parsed.items) {
-    // Skip items with zero or negative quantities
-    if (!item.quantity || item.quantity <= 0) continue;
+  for (const item of items) {
+    const matchedFood = pickBestMatch(item, candidates);
+    const multiplier = item.quantity / 100;
 
-    // Try to match against our food database (case-insensitive name search)
-    const matchedFood = await prisma.food.findFirst({
-      where: {
-        OR: [
-          { name: { contains: item.name, mode: "insensitive" } },
-          ...(item.nameHindi
-            ? [{ nameHindi: { contains: item.nameHindi, mode: "insensitive" as const } }]
-            : []),
-        ],
-      },
+    // Matched → accurate per-100g data from the DB.
+    // Unmatched → the LLM's (schema-clamped) estimates.
+    const source = matchedFood ?? {
+      id: null,
+      name: item.name,
+      caloriesPer100g: item.estimatedCaloriesPer100g,
+      proteinPer100g: item.estimatedProteinPer100g,
+      carbsPer100g: item.estimatedCarbsPer100g,
+      fatPer100g: item.estimatedFatPer100g,
+    };
+
+    const calories = Math.round(source.caloriesPer100g * multiplier);
+
+    foodRows.push({
+      foodId: source.id,
+      name: source.name,
+      quantity: item.quantity,
+      unit: "g",
+      calories,
+      protein: Math.round(source.proteinPer100g * multiplier * 10) / 10,
+      carbs: Math.round(source.carbsPer100g * multiplier * 10) / 10,
+      fat: Math.round(source.fatPer100g * multiplier * 10) / 10,
     });
 
-    if (matchedFood) {
-      // ── MATCHED: Use accurate DB nutrition data ──
-      // This path calls logFoodItem() from Step 3 nutrition service
-      // which calculates from per-100g data × quantity
-      await logFoodItem(userId, {
-        date,
-        mealType,
-        foodId: matchedFood.id,
-        quantityGrams: item.quantity,
-        isRestaurant: false,
-      });
-
-      const multiplier = item.quantity / 100;
-      logged.push({
-        name: matchedFood.name,
-        quantity: item.quantity,
-        calories: Math.round(matchedFood.caloriesPer100g * multiplier),
-        matched: true,
-      });
-    } else {
-      // ── UNMATCHED: Use LLM's estimated nutrition ──
-      // This path calls logCustomFood() from Step 3 nutrition service
-      const multiplier = item.quantity / 100;
-      const calories = Math.round(item.estimatedCaloriesPer100g * multiplier);
-      const protein = Math.round(item.estimatedProteinPer100g * multiplier * 10) / 10;
-      const carbs = Math.round(item.estimatedCarbsPer100g * multiplier * 10) / 10;
-      const fat = Math.round(item.estimatedFatPer100g * multiplier * 10) / 10;
-
-      await logCustomFood(userId, {
-        date,
-        mealType,
-        name: item.name,
-        quantity: item.quantity,
-        unit: "g",
-        calories,
-        protein,
-        carbs,
-        fat,
-      });
-
-      logged.push({
-        name: item.name,
-        quantity: item.quantity,
-        calories,
-        matched: false,
-      });
-    }
+    logged.push({
+      name: source.name,
+      quantity: item.quantity,
+      calories,
+      matched: matchedFood !== null,
+    });
   }
+
+  // 5. ONE transaction writes the whole meal
+  await logMealFoods(userId, { date, mealType, foods: foodRows });
 
   const totalCalories = logged.reduce((sum, item) => sum + item.calories, 0);
 
@@ -191,21 +267,37 @@ export async function parseMealText(
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Get the Monday of the current week.
- * Used as the weekStart key for caching insights.
+ * Get the Monday of the week containing `localDate` (a "YYYY-MM-DD" string
+ * from the CLIENT — the user's own calendar date).
+ *
+ * TIMEZONE RULE: the server must never compute "today" from its own clock
+ * for a user-facing feature. Vercel runs in UTC; for an Indian user opening
+ * the app Monday 9 AM IST, the server's clock still says Sunday — the old
+ * code served LAST week's insight as "this week" and cached it.
+ *
+ * The date string is anchored to UTC midnight so the day-of-week arithmetic
+ * below is pure calendar math, immune to whatever timezone the server is in.
+ * Falls back to the server's local date only when the client sent none.
  */
-function getWeekStart(): Date {
-  const now = new Date();
-  const day = now.getDay(); // 0=Sun, 1=Mon, ...
+function getWeekStart(localDate?: string): Date {
+  const dateStr =
+    localDate && /^\d{4}-\d{2}-\d{2}$/.test(localDate)
+      ? localDate
+      : localDateStr();
+  const monday = new Date(`${dateStr}T00:00:00Z`);
+  const day = monday.getUTCDay(); // 0=Sun, 1=Mon, ...
   const diff = day === 0 ? 6 : day - 1; // Days since Monday
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - diff);
-  monday.setHours(0, 0, 0, 0);
+  monday.setUTCDate(monday.getUTCDate() - diff);
   return monday;
 }
 
 /**
- * Format a date as YYYY-MM-DD string.
+ * Format a UTC-anchored date as "YYYY-MM-DD".
+ *
+ * NOTE: toISOString().split("T")[0] is BANNED for wall-clock dates
+ * (CONTEXT.md — the July 8 midnight bug). It is correct HERE because every
+ * date passed in is already anchored to UTC midnight by getWeekStart() —
+ * this is calendar arithmetic, not clock reading.
  */
 function formatDate(d: Date): string {
   return d.toISOString().split("T")[0];
@@ -224,8 +316,8 @@ function formatDate(d: Date): string {
  *
  * Returns the cached insight, or null if none exists for this week yet.
  */
-export async function getCachedWeeklyInsight(userId: string) {
-  const weekStart = getWeekStart();
+export async function getCachedWeeklyInsight(userId: string, localDate?: string) {
+  const weekStart = getWeekStart(localDate);
   const existing = await getInsightForWeek(userId, weekStart);
   if (!existing) return null;
 
@@ -251,10 +343,15 @@ export async function getCachedWeeklyInsight(userId: string) {
  * 6. Save to database (cache for this week)
  * 7. Return the insight
  */
-export async function generateWeeklyInsight(userId: string) {
-  const weekStart = getWeekStart();
+export async function generateWeeklyInsight(userId: string, localDate?: string) {
+  const weekStart = getWeekStart(localDate);
 
-  // 1. Check cache — don't regenerate if already exists
+  // 1. Check cache — don't regenerate if already exists.
+  //
+  // KNOWN LIMITATION (cache stampede): two concurrent misses will BOTH call
+  // the LLM; saveInsight() upserts on (userId, weekStart) so the writes
+  // can't conflict — last one wins. Accepted: generation is rate-limited to
+  // 2/week/user, so the worst case is one wasted LLM call, not corruption.
   const existing = await getInsightForWeek(userId, weekStart);
   if (existing) {
     return {
@@ -267,11 +364,11 @@ export async function generateWeeklyInsight(userId: string) {
     };
   }
 
-  // 2. Fetch 7 days of data
+  // 2. Fetch 7 days of data (UTC calendar math — weekStart is UTC-anchored)
   const days: string[] = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
+    d.setUTCDate(weekStart.getUTCDate() + i);
     days.push(formatDate(d));
   }
 
@@ -284,7 +381,7 @@ export async function generateWeeklyInsight(userId: string) {
   ]);
 
   if (!profile) {
-    throw new Error("Profile not found. Complete onboarding first.");
+    throw new UserFacingError("Profile not found. Complete onboarding first.");
   }
 
   // 3. Build context for the LLM
@@ -352,7 +449,9 @@ Write a personalised weekly insight for this user.`;
   });
 
   if (!aiResult.ok) {
-    throw new Error(aiResult.error);
+    // aiResult.error is a user-friendly message written by the fallback
+    // chain; provider details stay in aiResult.attempts (server logs only).
+    throw new UserFacingError(aiResult.error);
   }
 
   // 5. Parse LLM response

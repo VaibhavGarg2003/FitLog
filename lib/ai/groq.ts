@@ -23,7 +23,9 @@
 
 const GROQ_MODEL = "openai/gpt-oss-120b";
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_TIMEOUT_MS = 4000;
+// Part of the 8s chain budget (Gemini 4s + Groq 2s + OpenRouter 2s) — see
+// gemini.ts for the full derivation from the Vercel 10s ceiling.
+const GROQ_TIMEOUT_MS = 2000;
 
 interface GroqRequest {
   systemPrompt: string;

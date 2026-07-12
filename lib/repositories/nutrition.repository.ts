@@ -93,24 +93,26 @@ export async function logFood(
   }
 ) {
   return prisma.$transaction(async (tx) => {
-    // Find or create the meal entry for this date + meal type
-    let mealEntry = await tx.mealEntry.findFirst({
+    // Upsert the meal entry — atomic, arbitrated by the DB's unique
+    // constraint on (userId, date, mealType). The old find-then-create was
+    // a check-then-act race: two concurrent requests could both see "no
+    // entry" and both create one. Duplicate LUNCH rows made foods appear
+    // to vanish. upsert + the constraint make that impossible on ANY path.
+    const mealEntry = await tx.mealEntry.upsert({
       where: {
+        userId_date_mealType: {
+          userId,
+          date: new Date(data.date),
+          mealType: data.mealType,
+        },
+      },
+      update: {},
+      create: {
         userId,
         date: new Date(data.date),
         mealType: data.mealType,
       },
     });
-
-    if (!mealEntry) {
-      mealEntry = await tx.mealEntry.create({
-        data: {
-          userId,
-          date: new Date(data.date),
-          mealType: data.mealType,
-        },
-      });
-    }
 
     // Add the food item to this meal entry
     const mealFood = await tx.mealFood.create({
@@ -129,6 +131,68 @@ export async function logFood(
     });
 
     return { mealEntry, mealFood };
+  });
+}
+
+/**
+ * Log MANY food items under one meal entry in a single transaction.
+ *
+ * Used by the AI meal parser: a 4-item meal becomes ONE entry upsert +
+ * ONE createMany instead of 4 separate transactions (N+1). Also makes the
+ * meal atomic — a failure mid-way logs nothing rather than half a meal.
+ */
+export async function logFoodsBatch(
+  userId: string,
+  data: {
+    date: string;
+    mealType: "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK";
+    foods: Array<{
+      foodId?: string | null;
+      name: string;
+      quantity: number;
+      unit: string;
+      calories: number;
+      protein: number;
+      carbs: number;
+      fat: number;
+      isRestaurant?: boolean;
+    }>;
+  }
+) {
+  return prisma.$transaction(async (tx) => {
+    const mealEntry = await tx.mealEntry.upsert({
+      where: {
+        userId_date_mealType: {
+          userId,
+          date: new Date(data.date),
+          mealType: data.mealType,
+        },
+      },
+      update: {},
+      create: {
+        userId,
+        date: new Date(data.date),
+        mealType: data.mealType,
+        loggingPath: "NLP",
+      },
+    });
+
+    await tx.mealFood.createMany({
+      data: data.foods.map((f) => ({
+        mealEntryId: mealEntry.id,
+        foodId: f.foodId ?? null,
+        name: f.name,
+        quantity: f.quantity,
+        unit: f.unit,
+        calories: f.calories,
+        protein: f.protein,
+        carbs: f.carbs,
+        fat: f.fat,
+        isRestaurant: f.isRestaurant ?? false,
+      })),
+    });
+
+    return { mealEntryId: mealEntry.id, count: data.foods.length };
   });
 }
 
