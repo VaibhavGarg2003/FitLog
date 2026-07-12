@@ -44,6 +44,15 @@ export default defineConfig({
   // DIRECT_URL → port 5432, no ?pgbouncer=true → supports full SQL.
   datasource: {
     url: process.env.DIRECT_URL ?? process.env.DATABASE_URL!,
+
+    // Shadow database — used by `migrate diff --from-migrations` (the CI
+    // drift check) and `migrate dev`. Prisma replays every migration into
+    // it to compute the schema they produce, then WIPES it — so this must
+    // NEVER point at a real database. In CI it's a throwaway Postgres
+    // service container; locally it's unset (Prisma auto-creates one when
+    // it has permission, and the drift check normally only runs in CI).
+    // NOTE (Prisma 7): this replaced the old --shadow-database-url CLI flag.
+    shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL,
   },
 
   // Where migration files are stored
