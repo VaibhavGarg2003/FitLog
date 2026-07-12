@@ -6,7 +6,12 @@
  *
  * Displays after a workout session is finished.
  * Shows exercises, sets, and the calorie burn estimate (as INFO ONLY).
+ * Completed sessions can be saved as a reusable TEMPLATE — the server
+ * derives the exercise plan from this session's real sets.
  */
+
+import { useState } from "react";
+import { useSaveTemplate } from "@/lib/hooks/use-templates";
 
 interface SessionSummaryProps {
   session: {
@@ -31,6 +36,26 @@ interface SessionSummaryProps {
 }
 
 export function SessionSummary({ session }: SessionSummaryProps) {
+  const saveTemplate = useSaveTemplate();
+  const [showSaveForm, setShowSaveForm] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  async function handleSaveTemplate() {
+    const name = templateName.trim();
+    if (!name) return;
+    try {
+      await saveTemplate.mutateAsync({
+        name,
+        fromSessionId: session.id,
+      });
+      setSaved(true);
+      setShowSaveForm(false);
+    } catch {
+      // Error surfaced via saveTemplate.isError below
+    }
+  }
+
   // Group sets by exercise name
   const exerciseGroups: Record<
     string,
@@ -119,6 +144,62 @@ export function SessionSummary({ session }: SessionSummaryProps) {
           </div>
         ))}
       </div>
+
+      {/* Save as Template — completed sessions only */}
+      {session.status === "COMPLETED" && (
+        <div className="p-3 px-4 border-t border-border">
+          {saved ? (
+            <p className="text-xs text-primary text-center">
+              ✓ Saved as template — find it under &quot;Start from
+              template&quot;
+            </p>
+          ) : showSaveForm ? (
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="Template name (e.g., Push Day A)"
+                maxLength={60}
+                autoFocus
+                className="w-full p-2.5 bg-background border border-border rounded-xl text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveTemplate}
+                  disabled={!templateName.trim() || saveTemplate.isPending}
+                  className="flex-1 py-2 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
+                >
+                  {saveTemplate.isPending ? "Saving..." : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSaveForm(false)}
+                  className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+              {saveTemplate.isError && (
+                <p className="text-xs text-red-400">
+                  {saveTemplate.error instanceof Error
+                    ? saveTemplate.error.message
+                    : "Failed to save template"}
+                </p>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowSaveForm(true)}
+              className="w-full py-2 text-sm text-text-secondary hover:text-primary font-medium transition-colors"
+            >
+              💾 Save as Template
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

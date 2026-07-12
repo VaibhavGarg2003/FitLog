@@ -25,15 +25,22 @@ import {
   useLogSet,
   useFinishSession,
 } from "@/lib/hooks/use-workout";
+import {
+  useStartFromTemplate,
+  type TemplateExercise,
+  type WorkoutTemplate,
+} from "@/lib/hooks/use-templates";
 import { DateStrip } from "../dashboard/_components/date-strip";
 import { ExerciseBrowser } from "./_components/exercise-browser";
 import { SetLogger } from "./_components/set-logger";
 import { SessionSummary } from "./_components/session-summary";
+import { TemplateList } from "./_components/template-list";
 
 export default function WorkoutPage() {
   const selectedDate = useUIStore((s) => s.selectedDate);
   const { data: sessions, isLoading } = useWorkoutsForDate(selectedDate);
   const startSession = useStartSession(selectedDate);
+  const startFromTemplate = useStartFromTemplate(selectedDate);
   const logSet = useLogSet(selectedDate);
   const finishSession = useFinishSession(selectedDate);
 
@@ -66,6 +73,15 @@ export default function WorkoutPage() {
     durationMin: number;
   } | null>(null);
 
+  // Planned exercises when the session was started from a template.
+  // Tapping one jumps straight into the SetLogger for it.
+  const [plannedExercises, setPlannedExercises] = useState<
+    TemplateExercise[] | null
+  >(null);
+  const [doneExerciseIds, setDoneExerciseIds] = useState<Set<string>>(
+    new Set()
+  );
+
   async function handleStartSession() {
     try {
       const session = await startSession.mutateAsync({
@@ -74,6 +90,21 @@ export default function WorkoutPage() {
       setActiveSessionId(session.id);
       setTotalSetsInSession(0);
       setWorkoutCompleted(null);
+      setPlannedExercises(null);
+      setDoneExerciseIds(new Set());
+    } catch {
+      // Error handled by TanStack Query
+    }
+  }
+
+  async function handleStartFromTemplate(template: WorkoutTemplate) {
+    try {
+      const result = await startFromTemplate.mutateAsync(template.id);
+      setActiveSessionId(result.session.id);
+      setTotalSetsInSession(0);
+      setWorkoutCompleted(null);
+      setPlannedExercises(result.exercises);
+      setDoneExerciseIds(new Set());
     } catch {
       // Error handled by TanStack Query
     }
@@ -150,6 +181,8 @@ export default function WorkoutPage() {
       setSetsLogged(0);
       setTotalSetsInSession(0);
       setShowFinish(false);
+      setPlannedExercises(null);
+      setDoneExerciseIds(new Set());
     } catch {
       // Error handled by TanStack Query
     }
@@ -183,6 +216,12 @@ export default function WorkoutPage() {
               isPending={logSet.isPending}
               onLogSet={handleLogSet}
               onDone={() => {
+                // If this exercise was part of the template plan and got at
+                // least one set, tick it off the checklist.
+                if (setsLogged > 0) {
+                  const finishedId = activeExercise.id;
+                  setDoneExerciseIds((prev) => new Set(prev).add(finishedId));
+                }
                 setActiveExercise(null);
                 setSetsLogged(0);
               }}
@@ -228,6 +267,53 @@ export default function WorkoutPage() {
               <p className="text-xs text-text-muted">
                 {totalSetsInSession} set{totalSetsInSession !== 1 ? "s" : ""} logged
               </p>
+
+              {/* Planned exercises (session started from a template) */}
+              {plannedExercises && plannedExercises.length > 0 && (
+                <div className="bg-surface rounded-2xl border border-border divide-y divide-border overflow-hidden">
+                  {plannedExercises.map((planned) => {
+                    const done = doneExerciseIds.has(planned.exerciseId);
+                    return (
+                      <button
+                        key={planned.exerciseId}
+                        type="button"
+                        onClick={() => {
+                          setActiveExercise({
+                            id: planned.exerciseId,
+                            name: planned.name,
+                            muscleGroup: planned.muscleGroup,
+                            category: planned.category,
+                            metValue: planned.metValue,
+                            isCompound: planned.isCompound,
+                          });
+                          setSetsLogged(0);
+                        }}
+                        className="w-full p-3 px-4 flex items-center gap-3 text-left hover:bg-surface-hover transition-colors"
+                      >
+                        <span className="text-lg leading-none">
+                          {done ? "✅" : "⬜"}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span
+                            className={`block text-sm font-medium truncate ${
+                              done
+                                ? "text-text-muted line-through"
+                                : "text-text-primary"
+                            }`}
+                          >
+                            {planned.name}
+                          </span>
+                          <span className="block text-xs text-text-muted">
+                            {planned.muscleGroup} · {planned.targetSets} set
+                            {planned.targetSets !== 1 ? "s" : ""} planned
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={() => setShowBrowser(true)}
@@ -278,16 +364,23 @@ export default function WorkoutPage() {
           </button>
         </div>
       ) : (
-        /* Start Session Button */
-        <button
-          type="button"
-          onClick={handleStartSession}
-          disabled={startSession.isPending}
-          className="w-full py-4 bg-primary text-white font-bold rounded-2xl hover:bg-primary-hover disabled:opacity-50 transition-colors text-lg shadow-md"
-          style={{ boxShadow: "0 4px 20px rgba(34, 197, 94, 0.3)" }}
-        >
-          {startSession.isPending ? "Starting..." : "🏋️ Start Workout"}
-        </button>
+        /* Start options: blank session or from a saved template */
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={handleStartSession}
+            disabled={startSession.isPending || startFromTemplate.isPending}
+            className="w-full py-4 bg-primary text-white font-bold rounded-2xl hover:bg-primary-hover disabled:opacity-50 transition-colors text-lg shadow-md"
+            style={{ boxShadow: "0 4px 20px rgba(34, 197, 94, 0.3)" }}
+          >
+            {startSession.isPending ? "Starting..." : "🏋️ Start Workout"}
+          </button>
+
+          <TemplateList
+            onStart={handleStartFromTemplate}
+            starting={startFromTemplate.isPending}
+          />
+        </div>
       )}
 
       {/* Loading */}

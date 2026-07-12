@@ -84,6 +84,19 @@ export const logWeightSchema = z.object({
   notes: z.string().max(500).optional(),
 });
 
+// ─── POST /api/templates — save a session as a template ─────
+export const createTemplateSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  // The exercise list is derived SERVER-SIDE from this session's real
+  // sets — the client cannot fabricate a template payload.
+  fromSessionId: z.string().min(1),
+});
+
+// ─── POST /api/templates/[id]/start — start session from it ─
+export const startFromTemplateSchema = z.object({
+  date: dateStrSchema.optional(),
+});
+
 // ─── PUT /api/profile — update profile + recalculate targets ─
 export const updateProfileSchema = z
   .object({
