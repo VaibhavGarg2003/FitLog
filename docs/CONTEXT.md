@@ -553,10 +553,16 @@ These rules were discussed and agreed upon to ensure the app stays within free-t
 - If monetized in the future → upgrade to Vercel Pro ($20/mo).
 
 ### USDA API Key
-- Key: `ekMM2EMAMtTKbNAYfYgrUSENNak4HjbwiMa8rF4e`
+- Store in `.env.local` as `USDA_API_KEY` (never commit the value). Free key
+  from https://api.data.gov/signup/ — regenerate anytime at api.data.gov.
 - Used during seed only (not at runtime).
 - Currently not utilized (manual food data used instead for reliability).
 - Can be used later to expand the food database.
+
+> SECURITY: A real USDA key was previously committed here in plaintext and is
+> in git history on the public remote. That key MUST be regenerated at
+> api.data.gov — a secret that ever hit a public repo is permanently burned,
+> even after this line is removed.
 
 ### New Files Added in Step 2
 ```
