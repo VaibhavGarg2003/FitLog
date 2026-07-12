@@ -10,8 +10,9 @@
 
 import { NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/supabase/server";
-import { prisma } from "@/lib/supabase/prisma";
+import { findExercises } from "@/lib/repositories/exercise.repository";
 import type { ExerciseCategory } from "@prisma/client";
+import { handleRouteError } from "@/lib/utils/errors";
 
 export async function GET(request: Request) {
   try {
@@ -24,42 +25,17 @@ export async function GET(request: Request) {
     // Parse query params
     const { searchParams } = new URL(request.url);
     const muscleGroup = searchParams.get("muscle");
-    const category = searchParams.get("category") as ExerciseCategory | null;
+    const rawCategory = searchParams.get("category");
+    const category =
+      rawCategory && ["COMPOUND", "ISOLATION", "CARDIO"].includes(rawCategory)
+        ? (rawCategory as ExerciseCategory)
+        : null;
     const query = searchParams.get("q")?.trim();
 
-    // Build filter
-    const where: Record<string, unknown> = {};
-    if (muscleGroup) {
-      where.muscleGroup = { equals: muscleGroup, mode: "insensitive" };
-    }
-    if (category && ["COMPOUND", "ISOLATION", "CARDIO"].includes(category)) {
-      where.category = category;
-    }
-    if (query && query.length >= 2) {
-      where.name = { contains: query, mode: "insensitive" };
-    }
-
-    const exercises = await prisma.exercise.findMany({
-      where,
-      orderBy: [{ muscleGroup: "asc" }, { name: "asc" }],
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        muscleGroup: true,
-        equipment: true,
-        metValue: true,
-        isCompound: true,
-        instructions: true,
-      },
-    });
+    const exercises = await findExercises({ muscleGroup, category, query });
 
     return NextResponse.json({ exercises, count: exercises.length });
   } catch (error) {
-    console.error("[GET /api/exercises] Error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "GET /api/exercises");
   }
 }

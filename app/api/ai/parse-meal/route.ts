@@ -39,7 +39,7 @@ import { getAuthUserId } from "@/lib/supabase/server";
 import { parseMealText } from "@/lib/services/ai.service";
 import { checkMealParserLimit } from "@/lib/middleware/rate-limit";
 import { parseMealRequestSchema } from "@/lib/validators/api.schema";
-import { UserFacingError } from "@/lib/utils/errors";
+import { handleRouteError } from "@/lib/utils/errors";
 
 export async function POST(request: NextRequest) {
   // 1. Auth check
@@ -99,16 +99,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
-    // Full details go to the server log; the client only ever sees messages
-    // written FOR users (UserFacingError) — internal errors can carry
-    // provider/infra details that must not leak.
-    console.error("[AI Parse Meal] Error:", error);
-
-    const message =
-      error instanceof UserFacingError
-        ? error.message
-        : "AI parsing failed. Please try again or log your meal manually.";
-
-    return NextResponse.json({ error: message }, { status: 500 });
+    // UserFacingError family → its status + message; unknown errors →
+    // Sentry + generic message + correlation ID. Never leak internals.
+    return handleRouteError(error, "POST /api/ai/parse-meal");
   }
 }

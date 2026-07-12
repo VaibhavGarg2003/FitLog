@@ -36,7 +36,11 @@ import {
   saveInsight,
 } from "@/lib/repositories/insight.repository";
 import { findFoodCandidates } from "@/lib/repositories/food.repository";
-import { UserFacingError } from "@/lib/utils/errors";
+import {
+  UserFacingError,
+  UpstreamError,
+  NotFoundError,
+} from "@/lib/utils/errors";
 import { localDateStr } from "@/lib/utils/local-date";
 
 // ─────────────────────────────────────────────────────────────
@@ -164,7 +168,8 @@ export async function parseMealText(
   });
 
   if (!aiResult.ok) {
-    throw new UserFacingError(aiResult.error);
+    // All providers down = upstream failure (502), message already friendly
+    throw new UpstreamError(aiResult.error);
   }
 
   // 2. Parse + validate the LLM response (trust boundary)
@@ -381,7 +386,7 @@ export async function generateWeeklyInsight(userId: string, localDate?: string) 
   ]);
 
   if (!profile) {
-    throw new UserFacingError("Profile not found. Complete onboarding first.");
+    throw new NotFoundError("Profile not found. Complete onboarding first.");
   }
 
   // 3. Build context for the LLM
@@ -451,7 +456,7 @@ Write a personalised weekly insight for this user.`;
   if (!aiResult.ok) {
     // aiResult.error is a user-friendly message written by the fallback
     // chain; provider details stay in aiResult.attempts (server logs only).
-    throw new UserFacingError(aiResult.error);
+    throw new UpstreamError(aiResult.error);
   }
 
   // 5. Parse LLM response

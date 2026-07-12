@@ -25,6 +25,7 @@ import {
   deleteMealFood,
 } from "@/lib/repositories/nutrition.repository";
 import { findFoodById } from "@/lib/repositories/food.repository";
+import { NotFoundError } from "@/lib/utils/errors";
 
 /**
  * Log a food item with automatic calorie/macro calculation.
@@ -42,7 +43,7 @@ export async function logFoodItem(
   // Fetch the food record to get nutrition per 100g
   const food = await findFoodById(data.foodId);
 
-  if (!food) throw new Error("Food not found");
+  if (!food) throw new NotFoundError("Food not found");
 
   // Calculate nutrition for the specified quantity
   const multiplier = data.quantityGrams / 100;

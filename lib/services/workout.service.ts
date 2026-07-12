@@ -32,6 +32,7 @@ import {
   getWorkoutBurnByDate,
   deleteSession,
 } from "@/lib/repositories/workout.repository";
+import { NotFoundError, ValidationError } from "@/lib/utils/errors";
 
 /**
  * Start a new workout session.
@@ -68,9 +69,9 @@ export async function logSet(
   }
 ) {
   const session = await findSessionForUser(sessionId, userId);
-  if (!session) throw new Error("Session not found");
+  if (!session) throw new NotFoundError("Session not found");
   if (session.status !== "IN_PROGRESS") {
-    throw new Error("Cannot add sets to a completed session");
+    throw new ValidationError("Cannot add sets to a completed session");
   }
   return addSet(sessionId, data);
 }
@@ -102,7 +103,7 @@ export async function finishSession(
   // it's a real ownership check and it doesn't care what day it is.
   const session = await findSessionForUser(sessionId, userId);
 
-  if (!session) throw new Error("Session not found");
+  if (!session) throw new NotFoundError("Session not found");
 
   let totalBurnLow = 0;
   let totalBurnHigh = 0;

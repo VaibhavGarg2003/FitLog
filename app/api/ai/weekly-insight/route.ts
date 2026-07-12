@@ -33,7 +33,7 @@ import {
   getCachedWeeklyInsight,
 } from "@/lib/services/ai.service";
 import { checkInsightLimit } from "@/lib/middleware/rate-limit";
-import { UserFacingError } from "@/lib/utils/errors";
+import { handleRouteError } from "@/lib/utils/errors";
 
 /**
  * Extract the client's local date ("YYYY-MM-DD") from ?date=.
@@ -44,11 +44,6 @@ import { UserFacingError } from "@/lib/utils/errors";
 function getClientDate(request: NextRequest): string | undefined {
   const date = request.nextUrl.searchParams.get("date");
   return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
-}
-
-/** Return the message only if it was written FOR users; otherwise generic. */
-function safeErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof UserFacingError ? error.message : fallback;
 }
 
 /**
@@ -69,11 +64,7 @@ export async function GET(request: NextRequest) {
     // No insight yet — tell the client so it can offer a "Generate" button.
     return NextResponse.json({ generated: false });
   } catch (error: unknown) {
-    console.error("[Weekly Insight GET] Error:", error);
-    return NextResponse.json(
-      { error: safeErrorMessage(error, "Failed to read insight") },
-      { status: 500 }
-    );
+    return handleRouteError(error, "GET /api/ai/weekly-insight");
   }
 }
 
@@ -104,10 +95,6 @@ export async function POST(request: NextRequest) {
     const result = await generateWeeklyInsight(userId, getClientDate(request));
     return NextResponse.json({ generated: true, ...result });
   } catch (error: unknown) {
-    console.error("[Weekly Insight POST] Error:", error);
-    return NextResponse.json(
-      { error: safeErrorMessage(error, "Insight generation failed") },
-      { status: 500 }
-    );
+    return handleRouteError(error, "POST /api/ai/weekly-insight");
   }
 }

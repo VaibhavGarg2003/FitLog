@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { getDailyTotals, getMealsForDate } from "@/lib/services/nutrition.service";
+import { handleRouteError } from "@/lib/utils/errors";
 
 export async function GET(request: NextRequest) {
   try {
@@ -43,11 +44,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(totals);
     }
   } catch (error) {
-    console.error("[GET /api/nutrition/daily]", error);
-    return NextResponse.json(
-      { error: "Failed to fetch daily summary" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "GET /api/nutrition/daily");
   }
 }
 

@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { searchFoodsByName } from "@/lib/repositories/food.repository";
+import { handleRouteError } from "@/lib/utils/errors";
 
 export async function GET(request: Request) {
   try {
@@ -37,10 +38,6 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ foods, count: foods.length });
   } catch (error) {
-    console.error("[GET /api/foods/search] Error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "GET /api/foods/search");
   }
 }

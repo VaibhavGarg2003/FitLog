@@ -24,13 +24,15 @@
  */
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { safeRedirectPath } from "@/lib/utils/safe-redirect";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   // origin = "https://fitlog.vercel.app" (your domain)
 
   const code = searchParams.get("code");
-  const redirect = searchParams.get("redirect") || "/dashboard";
+  // Sanitized — an attacker-supplied ?redirect must stay on our origin
+  const redirect = safeRedirectPath(searchParams.get("redirect"));
 
   if (code) {
     const supabase = await createClient();

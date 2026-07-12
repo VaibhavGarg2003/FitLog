@@ -21,6 +21,7 @@ import {
   logDbFoodSchema,
   logCustomFoodSchema,
 } from "@/lib/validators/api.schema";
+import { handleRouteError } from "@/lib/utils/errors";
 
 export async function POST(request: NextRequest) {
   try {
@@ -72,11 +73,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result, { status: 201 });
     }
   } catch (error) {
-    console.error("[POST /api/nutrition/log]", error);
-    return NextResponse.json(
-      { error: "Failed to log food" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "POST /api/nutrition/log");
   }
 }
 

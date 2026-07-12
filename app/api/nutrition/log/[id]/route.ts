@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { removeFood } from "@/lib/services/nutrition.service";
+import { handleRouteError } from "@/lib/utils/errors";
 
 export async function DELETE(
   _request: NextRequest,
@@ -32,10 +33,6 @@ export async function DELETE(
     await removeFood(id, userId);
     return NextResponse.json({ deleted: true });
   } catch (error) {
-    console.error("[DELETE /api/nutrition/log/[id]]", error);
-    return NextResponse.json(
-      { error: "Failed to delete food" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "DELETE /api/nutrition/log/[id]");
   }
 }

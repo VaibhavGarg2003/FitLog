@@ -16,6 +16,7 @@ import {
 } from "@/lib/services/workout.service";
 import { startWorkoutSchema } from "@/lib/validators/api.schema";
 import { localDateStr } from "@/lib/utils/local-date";
+import { handleRouteError } from "@/lib/utils/errors";
 
 export async function POST(request: NextRequest) {
   try {
@@ -52,11 +53,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(session, { status: 201 });
   } catch (error) {
-    console.error("[POST /api/workout]", error);
-    return NextResponse.json(
-      { error: "Failed to create session" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "POST /api/workout");
   }
 }
 
@@ -73,10 +70,6 @@ export async function GET(request: NextRequest) {
     const sessions = await getWorkoutsByDate(userId, date);
     return NextResponse.json(sessions);
   } catch (error) {
-    console.error("[GET /api/workout]", error);
-    return NextResponse.json(
-      { error: "Failed to fetch workouts" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "GET /api/workout");
   }
 }

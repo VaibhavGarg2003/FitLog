@@ -14,6 +14,7 @@
  */
 
 import { prisma } from "@/lib/supabase/prisma";
+import { NotFoundError } from "@/lib/utils/errors";
 
 /**
  * Get all meal entries for a user on a specific date.
@@ -211,7 +212,7 @@ export async function deleteMealFood(mealFoodId: string, userId: string) {
     });
 
     if (!mealFood || mealFood.mealEntry.userId !== userId) {
-      throw new Error("Food item not found or not authorized");
+      throw new NotFoundError("Food item not found or not authorized");
     }
 
     // Delete the food item

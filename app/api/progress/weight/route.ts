@@ -15,6 +15,7 @@ import {
 } from "@/lib/services/progress.service";
 import { logWeightSchema } from "@/lib/validators/api.schema";
 import { localDateStr } from "@/lib/utils/local-date";
+import { handleRouteError } from "@/lib/utils/errors";
 
 export async function POST(request: NextRequest) {
   try {
@@ -51,11 +52,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(log, { status: 201 });
   } catch (error) {
-    console.error("[POST /api/progress/weight]", error);
-    return NextResponse.json(
-      { error: "Failed to log weight" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "POST /api/progress/weight");
   }
 }
 
@@ -69,10 +66,6 @@ export async function GET() {
     const progress = await getProgressData(userId);
     return NextResponse.json(progress);
   } catch (error) {
-    console.error("[GET /api/progress/weight]", error);
-    return NextResponse.json(
-      { error: "Failed to fetch progress" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "GET /api/progress/weight");
   }
 }

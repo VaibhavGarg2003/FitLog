@@ -12,6 +12,7 @@ import {
   logSetSchema,
   finishSessionSchema,
 } from "@/lib/validators/api.schema";
+import { handleRouteError } from "@/lib/utils/errors";
 
 export async function POST(
   request: NextRequest,
@@ -47,16 +48,9 @@ export async function POST(
 
     return NextResponse.json(set, { status: 201 });
   } catch (error) {
-    console.error("[POST /api/workout/[id]/sets]", error);
-    // Ownership failures surface as "Session not found" → 404 (don't reveal
-    // whether the id exists for another user).
-    if (error instanceof Error && error.message === "Session not found") {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
-    return NextResponse.json(
-      { error: "Failed to add set" },
-      { status: 500 }
-    );
+    // Ownership failures throw NotFoundError → 404 via handleRouteError
+    // (don't reveal whether the id exists for another user).
+    return handleRouteError(error, "POST /api/workout/[id]/sets");
   }
 }
 
@@ -101,13 +95,6 @@ export async function PUT(
 
     return NextResponse.json(session);
   } catch (error) {
-    console.error("[PUT /api/workout/[id]/sets]", error);
-    if (error instanceof Error && error.message === "Session not found") {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
-    return NextResponse.json(
-      { error: "Failed to finish session" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "PUT /api/workout/[id]/sets");
   }
 }

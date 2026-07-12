@@ -16,6 +16,7 @@ import { Dumbbell, Mail, Lock, Globe } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { APP_NAME } from "@/lib/utils/constants";
 import { cn } from "@/lib/utils/cn";
+import { safeRedirectPath } from "@/lib/utils/safe-redirect";
 
 export function LoginForm() {
   const router = useRouter();
@@ -27,7 +28,8 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
 
   const supabase = createClient();
-  const redirectTo = searchParams.get("redirect") || "/dashboard";
+  // Sanitized — ?redirect=//evil.com must never survive a successful login
+  const redirectTo = safeRedirectPath(searchParams.get("redirect"));
 
   async function handleEmailLogin(e: React.FormEvent) {
     e.preventDefault();

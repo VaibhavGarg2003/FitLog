@@ -10,8 +10,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { getUserProfile, recalculateProfile } from "@/lib/services/profile.service";
+import { updateProfileSchema } from "@/lib/validators/api.schema";
+import { handleRouteError } from "@/lib/utils/errors";
 
 export async function GET() {
   try {
@@ -34,11 +37,7 @@ export async function GET() {
 
     return NextResponse.json(profile);
   } catch (error) {
-    console.error("[GET /api/profile] Error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "GET /api/profile");
   }
 }
 
@@ -65,22 +64,29 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
 
-    const updated = await recalculateProfile(userId, {
-      weightKg: body.weightKg,
-      activityLevel: body.activityLevel,
-      goal: body.goal,
-      dietaryType: body.dietaryType,
-    });
+    const parsed = updateProfileSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: "Invalid profile data",
+          details: z.flattenError(parsed.error).fieldErrors,
+        },
+        { status: 400 }
+      );
+    }
+
+    const updated = await recalculateProfile(userId, parsed.data);
 
     return NextResponse.json(updated);
   } catch (error) {
-    console.error("[PUT /api/profile] Error:", error);
-    return NextResponse.json(
-      { error: "Failed to update profile" },
-      { status: 500 }
-    );
+    return handleRouteError(error, "PUT /api/profile");
   }
 }
 

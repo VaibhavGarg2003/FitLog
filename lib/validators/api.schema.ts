@@ -84,6 +84,20 @@ export const logWeightSchema = z.object({
   notes: z.string().max(500).optional(),
 });
 
+// ─── PUT /api/profile — update profile + recalculate targets ─
+export const updateProfileSchema = z
+  .object({
+    weightKg: z.number().min(30).max(300).optional(),
+    activityLevel: z
+      .enum(["SEDENTARY", "LIGHT", "MODERATE", "ACTIVE", "VERY_ACTIVE"])
+      .optional(),
+    goal: z.enum(["LOSE_FAT", "GAIN_MUSCLE", "MAINTAIN", "RECOMP"]).optional(),
+    dietaryType: z.enum(["VEG", "NON_VEG", "VEGAN", "EGGETARIAN"]).optional(),
+  })
+  .refine((data) => Object.values(data).some((v) => v !== undefined), {
+    message: "At least one field must be provided",
+  });
+
 // ─── POST /api/ai/parse-meal — AI meal parsing ───────────────
 export const parseMealRequestSchema = z.object({
   text: z

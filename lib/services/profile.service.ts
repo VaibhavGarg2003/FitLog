@@ -29,6 +29,7 @@ import {
   updateProfile,
 } from "@/lib/repositories/profile.repository";
 import { type OnboardingFormData } from "@/lib/validators/onboarding.schema";
+import { NotFoundError } from "@/lib/utils/errors";
 
 /**
  * Complete the onboarding process for a new user.
@@ -128,7 +129,7 @@ export async function recalculateProfile(
 ) {
   // Get current profile to merge with updates
   const current = await getProfileByUserId(userId);
-  if (!current) throw new Error("Profile not found");
+  if (!current) throw new NotFoundError("Profile not found");
 
   const sex = updates.sex ?? current.sex ?? "MALE";
   const weightKg = updates.weightKg ?? current.weightKg ?? 70;
