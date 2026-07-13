@@ -24,8 +24,13 @@
 - ✅ **Step 4: AI / Intelligence — COMPLETED (July 7, 2026)**
 - ✅ **Post-Step 4 Bug Fixes — COMPLETED (July 8, 2026)**
 - ✅ **GitHub repository created and code pushed (July 8, 2026)**
-- ⏳ **Vercel deployment in progress (July 8, 2026)**
-- ⏳ **Next: Step 5: Polish (animations, PWA, responsive audit, E2E tests)**
+- ✅ **Vercel deployment live (July 8, 2026)**
+- ✅ **Hardening sprint — COMPLETED (July 12–13, 2026)**: 12-finding code review implemented, security lockdown (RLS deny-all, open-redirect, headers, error taxonomy + Sentry), Vitest test suite (50 tests), CI test + migration-drift stages
+- ✅ **E1: Workout Templates UI — COMPLETED (July 13, 2026)**
+- ✅ **C1: Two-environment split — COMPLETED (July 13, 2026)**: dev Supabase project, `migrate:prod` ritual, RUNBOOK
+- ✅ **D1+D2: Django second service scaffold + Supabase JWT auth — COMPLETED (July 13, 2026)**: github.com/VaibhavGarg2003/fitlog-django, CI green
+- ⏳ **Next: D3 — Django share-links app + food Admin** (then D4 Render deploy → D5 Next.js share UI → D6 cron)
+- 📖 Full details: "July 12–13 Session Notes" section near the end of this file
 
 ---
 
@@ -1313,21 +1318,81 @@ Without this, Google OAuth redirects to localhost even on the live site.
 
 ---
 
+## 🚀 July 12–13, 2026 Session Notes — Hardening, Templates, Two Environments, Django
+
+*(This section is the authoritative "where we are." Commits listed newest-last.)*
+
+### Performance & bug fixes
+- **Debounced food search**: new `lib/hooks/use-debounce.ts`, wired into the food search modal — typing "roti" fires ONE request, not four.
+- **Page-navigation slowness fixed**: every `supabase.auth.getUser()` on the hot path (proxy, layouts, all API routes) replaced with local JWT verification — `getClaims()` via `getAuthUserId()` in `lib/supabase/server.ts`. Both Supabase projects verified on asymmetric ES256 signing keys, so verification is local (no network round-trip). `getUser()` remains ONLY in the one-time onboarding POST.
+- `DATABASE_URL` switched to the Supabase transaction pooler (port 6543).
+
+### 12-finding code review implemented (commit `cc8034f`)
+1. DAO violation fixed: `lib/repositories/food.repository.ts`; no `prisma.` outside repositories.
+2. Zod validation on EVERY mutating route: `lib/validators/api.schema.ts`.
+3. Race condition: `@@unique([userId, date, mealType])` on MealEntry + upsert; migration merges pre-existing duplicates.
+4. Server timezone bug: weekly insight takes the CLIENT's local date (`?date=`); UTC calendar math; `toISOString().split` purged from server paths.
+5. Vitest installed: engine + validator + redirect tests (50 total), `npm test`.
+6. LLM output is a trust boundary: coerced + clamped schema (900 kcal/100g cap) before any DB write.
+7. Deterministic food matching: exact → prefix → substring ladder, verified-then-shortest tiebreak.
+8. N+1 killed: one candidate query + ONE transaction per parsed meal (`logFoodsBatch`, atomic).
+9. parse-meal validates BEFORE spending a rate-limit token.
+10. Pool comment corrected; `max: 2` per serverless instance (pgbouncer is the real pooling).
+11. AI timeout budget 4s/2s/2s (was 18s worst-case vs the 10s Vercel ceiling).
+12. Hygiene: `DELETE /api/nutrition/log/[id]` (id in URL), Gemini key in `x-goog-api-key` header, CRON_SECRET wired on /api/health (enforced only when set — deliberate divergence from doc 08 C3's "delete it"), prod warns if rate limiter is unconfigured, insight cache stampede documented as accepted.
+
+### Security lockdown (commits `3e16fbe`, `21a407f`)
+- **RLS deny-all enabled on all 14 tables** (migration `20260712010000_enable_rls_lockdown`) — closes the PostgREST hole where the browser-exposed anon key could read/write tables directly. App unaffected (Prisma connects as postgres, which bypasses RLS). Applied to BOTH prod and dev.
+- **Leaked USDA API key** scrubbed from this file and ROTATED (old key dead; new key lives in `.env.local` as `USDA_API_KEY`, never committed). Old key still visible in git history — harmless because rotated.
+- **Error taxonomy**: `lib/utils/errors.ts` — `ValidationError`/`NotFoundError`/`UpstreamError` extend `UserFacingError`; ONE `handleRouteError()` in every route catch. Known errors → status + safe message; unknown → Sentry + correlation ID + generic message. Services throw typed errors ("not found", never "forbidden" — the IDOR rule).
+- **Open redirect closed**: `lib/utils/safe-redirect.ts` sanitizes `?redirect=` in login form + OAuth callback (tested: `//evil.com`, `/\`, `://`, `javascript:`).
+- **Security headers** in `next.config.ts`: X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy. CSP deliberately deferred (needs nonce middleware).
+- **DAO rule is a lint rule**: ESLint `no-restricted-imports` blocks `@/lib/supabase/prisma` outside `lib/repositories/**`, `lib/supabase/**`, `prisma/**`, `app/api/health/**`. Exercises route moved to `exercise.repository.ts`.
+- Remaining security items: CAPTCHA via Cloudflare Turnstile (user must create keys, then wire widget BEFORE enabling in Supabase — enabling first breaks login), leaked-password toggle (likely Pro-gated → skip).
+
+### E1: Workout Templates (commit `b679b49`)
+- Save a completed session as a template (server derives the plan from real sets — client sends only `{name, fromSessionId}`); start a session from a template with a tap-through exercise checklist; owner-scoped delete.
+- New: `template.repository.ts`, `template.service.ts`, `use-templates.ts`, `/api/templates` (+`[id]`, +`[id]/start`), `TemplateList` component, save-form on `SessionSummary`.
+- NOT yet manually click-tested in a browser — worth a 2-minute check.
+
+### C1: Two environments (commit `b010024`)
+- **Dev Supabase project `fitlog-dev`** (ap-south-1 Mumbai). `.env.local` → DEV (laptop default). `.env.prod.local` (gitignored) holds PROD DB URLs, used ONLY by `npm run migrate:prod` (dotenv-cli; prisma.config's dotenv never overrides preset vars).
+- Dev DB: all 5 migrations replayed, 150 foods + 155 exercises seeded, RLS 14/14, app boot verified.
+- **Migration ritual** documented in `docs/learning/RUNBOOK.md` (local-only file): rehearse on dev → CI drift check green → `npm run migrate:prod` deliberately.
+- ⚠️ Local dev sign-in: prod accounts do NOT exist on dev — sign up fresh with email/password. Google OAuth is not configured on the dev project.
+
+### CI upgrades (commits `21a407f`, `babaf24`, `9f23f42` — green)
+- Test stage (Vitest) between lint and build.
+- **Migration-drift check**: `prisma migrate diff --from-migrations ... --to-schema ... --exit-code` against a throwaway Postgres service container (`POSTGRES_DB: shadow`; Prisma 7 takes the shadow DB via `SHADOW_DATABASE_URL` → `prisma.config.ts` `datasource.shadowDatabaseUrl` — the old `--shadow-database-url` and `--to-schema-datamodel` flags are REMOVED in Prisma 7). Proven red-capable (exit 2 on unmigated schema edit).
+- Debugging lesson recorded: a new CI step is untested code — run it locally first.
+
+### D1+D2: Django second service (separate repo: github.com/VaibhavGarg2003/fitlog-django)
+- Local path `C:\fitlog-django`, venv (Docker NOT installed — deliberate), Django 5.2 + DRF, settings split base/dev/prod (manage.py→dev, wsgi/gunicorn→prod, prod requires SECRET_KEY/ALLOWED_HOSTS from host env).
+- **`apps/core/authentication.py` — SupabaseJWTAuthentication**: verifies the SAME Supabase JWT the browser holds, locally against the project JWKS (ES256, cached PyJWKClient). One identity provider, two verifiers. 9 pytest tests cover the trust boundary. `/api/healthz` + `/api/whoami`. ruff + GitHub Actions CI (green).
+- Architecture: shared Supabase Postgres, strict table ownership (Prisma migrates FitLog tables; Django will migrate only its own `share_links` etc. and map FitLog tables `managed=False`).
+
+### Decisions made this session
+- URLs: keep raw `.vercel.app` + `.onrender.com` for now; users only ever see the Vercel one (share pages live there). Custom domain = later, optional.
+- Render account: CREATED, GitHub deployment credentials connected. Nothing deployed yet — waits for D4's `render.yaml`.
+- CRON_SECRET: wired-but-empty (health stays public until set).
+
+### ⏭️ NEXT STEP: **D3** — Django `sharing` app (snapshot model per doc 06: unguessable `secrets.token_urlsafe` slugs, 5 endpoints, DRF throttle 20/day, expiry/revocation, owner-only delete + IDOR test) + `foods` app (`managed=False` + `admin.py`). Then D4 (Render Blueprint deploy — user pastes 4 env values), D5 (Next.js `/s/[slug]` page with OG tags for WhatsApp previews, share buttons, `NEXT_PUBLIC_DJANGO_URL` in Vercel), D6 (cron insight pre-generation). After Phase D: E2 export, E3 streaks, E4 AI quota UX, E5 PWA/E2E. Plans live in `docs/learning/04...08` (local-only).
+
+---
+
 ## 🔗 How to Resume This Project in a New Chat
 
 1. Point the new chat to this file: `c:\Fitness_app\docs\CONTEXT.md`
-2. Also read: `c:\Fitness_app\docs\production_architecture.md`
+2. Also read: `c:\Fitness_app\docs\production_architecture.md` and (local-only) `docs/learning/08-implementation-plan.md` + `docs/learning/RUNBOOK.md`
 3. Say: "Read the CONTEXT.md file in my workspace docs folder. This is the FitLog fitness website project. Resume from where we left off."
 
 The agent will have full context of:
 - What FitLog is and ALL its features
 - The production-ready tech stack (Next.js 16, TypeScript, Tailwind, Supabase, Prisma 7)
-- Every user requirement and all bug fixes applied
-- GitHub repo: https://github.com/VaibhavGarg2003/FitLog
-- All 4 implementation steps DONE, bug fixes DONE, deployment in progress
-- **Step 5 is next**: animations, PWA, responsive audit, E2E tests
-- The `localDateStr()` utility in `lib/utils/local-date.ts` — always use this instead of `toISOString().split("T")[0]`
-- The `nutrition/page.tsx` now calls `useMealsForDate` — food is visible in all meal sections
-- Workout page has: completion card, 0-set validation, back button from duration screen
-- Settings page has a Sign Out button
-- Date strip is centered on today (3 before + today + 3 after)
+- Every user requirement, all bug fixes, the July 12–13 hardening + Django work (section above)
+- Repos: https://github.com/VaibhavGarg2003/FitLog and https://github.com/VaibhavGarg2003/fitlog-django (local: `C:\fitlog-django`)
+- Environments: laptop → DEV Supabase; prod DB touched only via `npm run migrate:prod`; Vercel holds prod runtime env
+- **Next step: Phase D3** (Django share links + food Admin), then D4 Render deploy
+- The `localDateStr()` utility in `lib/utils/local-date.ts` — always use this instead of `toISOString().split("T")[0]`; user-local dates come FROM the client
+- The error rule: routes end with `handleRouteError()`; services throw typed errors from `lib/utils/errors.ts`
+- The DAO rule: `prisma` imports only under `lib/repositories/` (ESLint-enforced)
