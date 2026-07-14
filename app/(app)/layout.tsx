@@ -25,6 +25,7 @@
 import { redirect } from "next/navigation";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { isUserOnboarded } from "@/lib/repositories/profile.repository";
+import { TopNav } from "@/components/shared/top-nav";
 import { BottomNav } from "@/components/shared/bottom-nav";
 
 export default async function AppLayout({
@@ -47,7 +48,11 @@ export default async function AppLayout({
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="pb-20 px-4 pt-4 max-w-lg mx-auto">
+      {/* Desktop nav + mobile logo/home bar (responsive; see top-nav.tsx) */}
+      <TopNav />
+      {/* Wider canvas on desktop; bottom padding only needed below lg where
+          the fixed BottomNav sits. */}
+      <main className="px-4 pt-4 pb-24 lg:pb-8 max-w-lg lg:max-w-5xl mx-auto">
         {children}
       </main>
       <BottomNav />

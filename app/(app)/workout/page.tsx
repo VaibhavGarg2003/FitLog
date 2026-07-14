@@ -193,7 +193,8 @@ export default function WorkoutPage() {
   ) ?? [];
 
   return (
-    <div className="space-y-4">
+    // Task flow — keep a comfortable reading column even on wide screens.
+    <div className="space-y-4 lg:max-w-2xl lg:mx-auto">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold font-[family-name:var(--font-outfit)]">

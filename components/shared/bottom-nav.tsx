@@ -56,6 +56,8 @@ export function BottomNav() {
   return (
     <nav
       className={cn(
+        // Mobile/tablet only — on desktop (≥lg) the TopNav header takes over.
+        "lg:hidden",
         // Fixed at the bottom of the viewport. Always visible.
         "fixed bottom-0 left-0 right-0 z-50",
         // Glassmorphism effect — semi-transparent with blur

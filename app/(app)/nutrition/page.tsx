@@ -103,8 +103,9 @@ export default function NutritionPage() {
         </div>
       )}
 
-      {/* Meal Sections */}
-      <div className="space-y-3">
+      {/* Meal Sections — stacked on mobile, 2-column grid on desktop.
+          Each meal (section + its slide-open AI input) is one grid cell. */}
+      <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
         {MEALS.map((meal) => {
           // Find the meal entry for this meal type from the fetched meals
           const entry = meals?.find((m) => m.mealType === meal.type);

@@ -108,7 +108,7 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 lg:max-w-2xl lg:mx-auto">
         <h1 className="text-2xl font-bold font-[family-name:var(--font-outfit)]">
           Settings
         </h1>
@@ -118,7 +118,8 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    // Form page — keep a comfortable reading column even on wide screens.
+    <div className="space-y-4 lg:max-w-2xl lg:mx-auto">
       <div>
         <h1 className="text-2xl font-bold font-[family-name:var(--font-outfit)]">
           Settings

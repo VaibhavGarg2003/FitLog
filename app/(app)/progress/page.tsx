@@ -41,8 +41,10 @@ export default function ProgressPage() {
         </p>
       </div>
 
-      {/* Weight Log Input */}
-      <WeightLogInput />
+      {/* Cards fill a 2-column grid on desktop; stacked on mobile */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
+        {/* Weight Log Input */}
+        <WeightLogInput />
 
       {/* Loading */}
       {isLoading && (
@@ -67,11 +69,13 @@ export default function ProgressPage() {
             canUseAdaptiveTDEE={progress.canUseAdaptiveTDEE}
           />
 
-          {/* Weight Chart */}
-          <WeightChart
-            history={progress.history}
-            targetWeight={progress.activeGoal?.targetValue}
-          />
+          {/* Weight Chart — full width even inside the 2-col grid */}
+          <div className="lg:col-span-2">
+            <WeightChart
+              history={progress.history}
+              targetWeight={progress.activeGoal?.targetValue}
+            />
+          </div>
 
           {/* Weekly AI Insight (Step 4) */}
           <WeeklyInsightCard />
@@ -91,6 +95,7 @@ export default function ProgressPage() {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }

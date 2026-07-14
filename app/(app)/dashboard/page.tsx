@@ -86,7 +86,9 @@ export default function DashboardPage() {
           ))}
         </div>
       ) : (
-        <>
+        // Single column on mobile; two columns on desktop to fill the wider
+        // canvas. items-start so cards size to their own height, not the row.
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
           {/* Calorie Ring — consumed vs target */}
           <CalorieRing consumed={consumed.calories} target={targets.calories} />
 
@@ -122,7 +124,7 @@ export default function DashboardPage() {
 
           {/* Today's Meals */}
           <TodayMeals meals={[]} />
-        </>
+        </div>
       )}
     </div>
   );
