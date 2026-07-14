@@ -10,11 +10,9 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4">
-      {/* flex items-center justify-center → vertically and horizontally
-          centers the login form on the page. Classic centering pattern. */}
+    // Full-viewport shell; only the form card stays narrow for readability.
+    <div className="w-full min-h-dvh bg-background flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        {/* max-w-sm → 384px max width. Login forms shouldn't be wide. */}
         {children}
       </div>
     </div>

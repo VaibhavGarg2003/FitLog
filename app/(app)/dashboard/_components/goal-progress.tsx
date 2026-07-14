@@ -45,7 +45,7 @@ export function GoalProgress({
   // State 3 — truly no data
   if (!currentWeight && !goal) {
     return (
-      <div className="bg-surface rounded-2xl p-5 border border-border">
+      <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border h-full">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
           Goal
         </h3>
@@ -65,7 +65,7 @@ export function GoalProgress({
     const remaining = Math.abs(currentWeight - targetWeight);
 
     return (
-      <div className="bg-surface rounded-2xl p-5 border border-border space-y-3">
+      <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-3 h-full">
         <div className="flex justify-between items-baseline">
           <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
             Goal Progress
@@ -107,7 +107,7 @@ export function GoalProgress({
 
   // State 2 — partial info (weight from onboarding, no target set yet)
   return (
-    <div className="bg-surface rounded-2xl p-5 border border-border space-y-3">
+    <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-3 h-full">
       <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
         Goal
       </h3>

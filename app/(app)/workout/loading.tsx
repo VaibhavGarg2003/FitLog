@@ -6,8 +6,8 @@ export default function Loading() {
     <PageSkeleton
       title="Workout"
       subtitle="Log your gym session"
-      columns={1}
-      cards={3}
+      columns={2}
+      cards={4}
     />
   );
 }

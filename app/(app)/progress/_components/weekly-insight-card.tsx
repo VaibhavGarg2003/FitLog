@@ -37,7 +37,7 @@ export function WeeklyInsightCard() {
   // Loading skeleton
   if (isLoading) {
     return (
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-3">
+      <div className="bg-surface border border-border rounded-xl p-4 lg:p-5 space-y-3 h-full">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-primary/20 rounded-lg animate-pulse" />
           <div className="h-5 w-32 bg-border rounded animate-pulse" />
@@ -54,7 +54,7 @@ export function WeeklyInsightCard() {
   // Error state
   if (isError) {
     return (
-      <div className="bg-surface border border-border rounded-xl p-4">
+      <div className="bg-surface border border-border rounded-xl p-4 lg:p-5 h-full">
         <div className="flex items-center gap-2 mb-2">
           <span className="text-lg">🤖</span>
           <h3 className="font-semibold text-sm text-text-primary">
@@ -75,7 +75,7 @@ export function WeeklyInsightCard() {
   // The LLM only runs when the user explicitly asks — never automatically.
   if (!data || !data.generated) {
     return (
-      <div className="bg-surface border border-border rounded-xl p-4">
+      <div className="bg-surface border border-border rounded-xl p-4 lg:p-5 h-full">
         <div className="flex items-center gap-2 mb-2">
           <span className="text-lg">🤖</span>
           <h3 className="font-semibold text-sm text-text-primary">
@@ -105,7 +105,7 @@ export function WeeklyInsightCard() {
   }
 
   return (
-    <div className="bg-surface border border-primary/20 rounded-xl p-4 space-y-3">
+    <div className="bg-surface border border-primary/20 rounded-xl p-4 lg:p-5 space-y-3 h-full">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

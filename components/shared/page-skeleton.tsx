@@ -23,15 +23,15 @@ export function PageSkeleton({
 }: {
   title: string;
   subtitle?: string;
-  /** 2 = wide content pages (dashboard/nutrition/progress); 1 = task/form pages */
+  /** 2 = multi-column overview pages; 1 = simpler stacked placeholders */
   columns?: 1 | 2;
   cards?: number;
 }) {
   return (
-    <div className={cn("space-y-4", columns === 1 && "lg:max-w-2xl lg:mx-auto")}>
+    <div className="space-y-4 lg:space-y-5">
       {/* Real title shows immediately; subtitle hints what's loading */}
       <div>
-        <h1 className="text-2xl font-bold font-[family-name:var(--font-outfit)]">
+        <h1 className="text-2xl lg:text-3xl font-bold font-[family-name:var(--font-outfit)]">
           {title}
         </h1>
         {subtitle && (
@@ -42,14 +42,14 @@ export function PageSkeleton({
       {/* Pulsing placeholders in the same grid the real page uses */}
       <div
         className={cn(
-          "grid grid-cols-1 gap-4",
+          "grid grid-cols-1 gap-4 lg:gap-5",
           columns === 2 && "lg:grid-cols-2 lg:items-start"
         )}
       >
         {Array.from({ length: cards }).map((_, i) => (
           <div
             key={i}
-            className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-32"
+            className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-32 lg:h-40"
           />
         ))}
       </div>

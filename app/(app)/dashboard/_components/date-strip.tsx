@@ -1,11 +1,15 @@
 "use client";
 
 /**
- * Date Strip — Horizontal Scrollable Date Selector
- * ═════════════════════════════════════════════════
+ * Date Strip — Horizontal Date Selector
+ * ═════════════════════════════════════
  *
  * Shows 7 dates centered on today: 3 days before, today, 3 days after.
  * Selecting a date updates the global `selectedDate` in the UI store.
+ *
+ * On phones the strip can scroll horizontally. On laptops the 7 days
+ * expand to fill the content width so the strip no longer looks like a
+ * narrow phone widget floating in empty space.
  *
  * WHY CENTERED ON TODAY (not last 7 days)?
  * ─────────────────────────────────────────
@@ -37,7 +41,7 @@ export function DateStrip() {
 
   return (
     <div className="space-y-2">
-      <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+      <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide lg:overflow-visible lg:mx-0 lg:px-0 lg:pb-0">
         {dates.map((date) => {
           const dateStr = localDateStr(date);
           const isSelected = dateStr === selectedDate;
@@ -53,6 +57,8 @@ export function DateStrip() {
               onClick={() => setSelectedDate(dateStr)}
               className={cn(
                 "flex flex-col items-center min-w-[3rem] py-2 px-3 rounded-xl transition-all duration-200 flex-shrink-0",
+                // Laptop: equal-width day cells fill the content canvas
+                "lg:flex-1 lg:min-w-0 lg:py-2.5",
                 isSelected
                   ? "bg-primary text-white shadow-md"
                   : isFuture
@@ -60,10 +66,10 @@ export function DateStrip() {
                   : "bg-surface hover:bg-surface-hover text-text-secondary"
               )}
             >
-              <span className="text-[10px] font-medium uppercase tracking-wider">
+              <span className="text-[10px] lg:text-xs font-medium uppercase tracking-wider">
                 {isToday ? "Today" : dayName}
               </span>
-              <span className="text-lg font-bold leading-tight">{dayNum}</span>
+              <span className="text-lg lg:text-xl font-bold leading-tight">{dayNum}</span>
               {isToday && !isSelected && (
                 <div className="w-1 h-1 rounded-full bg-primary mt-0.5" />
               )}
@@ -85,4 +91,3 @@ export function DateStrip() {
     </div>
   );
 }
-

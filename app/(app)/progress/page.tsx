@@ -9,6 +9,9 @@
  * 2. Stats cards (starting, current, change, log count)
  * 3. Weight trend chart (SVG line chart)
  *
+ * LAYOUT (laptop): 12-col grid — log + stats on top, full-width chart,
+ * insight + adaptive notice side-by-side so the wide shell is filled.
+ *
  * ADAPTIVE TDEE:
  * After 14+ weight log entries, the progress page shows that
  * Adaptive TDEE is available. The adaptive-tdee.ts engine (Step 2)
@@ -30,10 +33,10 @@ export default function ProgressPage() {
   const { data: progress, isLoading } = useProgressData();
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold font-[family-name:var(--font-outfit)]">
+        <h1 className="text-2xl lg:text-3xl font-bold font-[family-name:var(--font-outfit)]">
           Progress
         </h1>
         <p className="text-text-secondary text-sm mt-0.5">
@@ -41,60 +44,71 @@ export default function ProgressPage() {
         </p>
       </div>
 
-      {/* Cards fill a 2-column grid on desktop; stacked on mobile */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5 lg:items-start">
         {/* Weight Log Input */}
-        <WeightLogInput />
-
-      {/* Loading */}
-      {isLoading && (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-24"
-            />
-          ))}
+        <div className="lg:col-span-4">
+          <WeightLogInput />
         </div>
-      )}
 
-      {progress && (
-        <>
-          {/* Stats Cards */}
-          <StatsCards
-            startWeight={progress.startWeight}
-            currentWeight={progress.currentWeight}
-            totalChange={progress.totalChange}
-            logCount={progress.logCount}
-            canUseAdaptiveTDEE={progress.canUseAdaptiveTDEE}
-          />
-
-          {/* Weight Chart — full width even inside the 2-col grid */}
-          <div className="lg:col-span-2">
-            <WeightChart
-              history={progress.history}
-              targetWeight={progress.activeGoal?.targetValue}
-            />
+        {/* Loading */}
+        {isLoading && (
+          <div className="lg:col-span-8 space-y-3">
+            {[1, 2].map((i) => (
+              <div
+                key={i}
+                className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-24"
+              />
+            ))}
           </div>
+        )}
 
-          {/* Weekly AI Insight (Step 4) */}
-          <WeeklyInsightCard />
-
-          {/* Adaptive TDEE Notice */}
-          {progress.canUseAdaptiveTDEE && (
-            <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4">
-              <p className="text-sm font-semibold text-primary">
-                ✨ Adaptive TDEE Available
-              </p>
-              <p className="text-xs text-text-secondary mt-1">
-                You have {progress.logCount} weight logs. The engine can now
-                calculate your real TDEE from actual data — more accurate than
-                any formula.
-              </p>
+        {progress && (
+          <>
+            {/* Stats Cards */}
+            <div className="lg:col-span-8">
+              <StatsCards
+                startWeight={progress.startWeight}
+                currentWeight={progress.currentWeight}
+                totalChange={progress.totalChange}
+                logCount={progress.logCount}
+                canUseAdaptiveTDEE={progress.canUseAdaptiveTDEE}
+              />
             </div>
-          )}
-        </>
-      )}
+
+            {/* Weight Chart — full width */}
+            <div className="lg:col-span-12">
+              <WeightChart
+                history={progress.history}
+                targetWeight={progress.activeGoal?.targetValue}
+              />
+            </div>
+
+            {/* Weekly AI Insight (Step 4) */}
+            <div
+              className={
+                progress.canUseAdaptiveTDEE ? "lg:col-span-7" : "lg:col-span-12"
+              }
+            >
+              <WeeklyInsightCard />
+            </div>
+
+            {/* Adaptive TDEE Notice */}
+            {progress.canUseAdaptiveTDEE && (
+              <div className="lg:col-span-5">
+                <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 lg:p-5 h-full">
+                  <p className="text-sm font-semibold text-primary">
+                    ✨ Adaptive TDEE Available
+                  </p>
+                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+                    You have {progress.logCount} weight logs. The engine can now
+                    calculate your real TDEE from actual data — more accurate than
+                    any formula.
+                  </p>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

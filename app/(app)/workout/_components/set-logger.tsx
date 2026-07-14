@@ -76,7 +76,7 @@ export function SetLogger({
   }
 
   return (
-    <div className="bg-surface rounded-2xl border border-border p-4 space-y-4">
+    <div className="bg-surface rounded-2xl border border-border p-4 lg:p-6 space-y-4">
       <div className="flex justify-between items-center">
         <div>
           <h3 className="font-semibold text-text-primary">{exerciseName}</h3>

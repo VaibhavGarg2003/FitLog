@@ -29,7 +29,7 @@ const MEAL_CONFIG = [
 
 export function TodayMeals({ meals }: TodayMealsProps) {
   return (
-    <div className="bg-surface rounded-2xl p-5 border border-border space-y-3">
+    <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-3 lg:space-y-4">
       <div className="flex justify-between items-baseline">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
           Today&apos;s Meals
@@ -42,7 +42,8 @@ export function TodayMeals({ meals }: TodayMealsProps) {
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      {/* Phone: 2×2. Laptop: one row of four so the full-width card feels complete. */}
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-3">
         {MEAL_CONFIG.map((config) => {
           const meal = meals.find((m) => m.type === config.type);
           const calories = meal?.calories ?? 0;
@@ -52,7 +53,7 @@ export function TodayMeals({ meals }: TodayMealsProps) {
             <Link
               key={config.type}
               href="/nutrition"
-              className="flex items-center gap-2.5 p-3 rounded-xl bg-surface-hover/50 hover:bg-surface-hover transition-colors"
+              className="flex items-center gap-2.5 p-3 lg:p-4 rounded-xl bg-surface-hover/50 hover:bg-surface-hover transition-colors"
             >
               <span className="text-xl">{config.emoji}</span>
               <div className="min-w-0">

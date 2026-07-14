@@ -40,7 +40,7 @@ export default async function LandingPage() {
   const isLoggedIn = userId !== null;
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="w-full min-h-dvh bg-background flex flex-col">
       {/* ── Header ── */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-border">
         <div className="flex items-center gap-2">

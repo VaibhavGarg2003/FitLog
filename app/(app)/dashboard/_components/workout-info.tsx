@@ -27,7 +27,7 @@ export function WorkoutInfo({
 }: WorkoutInfoProps) {
   if (sessionCount === 0) {
     return (
-      <div className="bg-surface rounded-2xl p-5 border border-border">
+      <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border h-full">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
           Workout
         </h3>
@@ -39,7 +39,7 @@ export function WorkoutInfo({
   }
 
   return (
-    <div className="bg-surface rounded-2xl p-5 border border-border space-y-2">
+    <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-2 h-full">
       <div className="flex justify-between items-baseline">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
           Workout

@@ -48,9 +48,9 @@ export function MealSection({
   const totalCalories = foods.reduce((sum, f) => sum + f.calories, 0);
 
   return (
-    <div className="bg-surface rounded-2xl border border-border overflow-hidden">
+    <div className="bg-surface rounded-2xl border border-border overflow-hidden h-full">
       {/* Header */}
-      <div className="flex justify-between items-center p-4 border-b border-border">
+      <div className="flex justify-between items-center p-4 lg:px-5 border-b border-border">
         <div className="flex items-center gap-2">
           <span className="text-xl">{emoji}</span>
           <h3 className="font-semibold text-text-primary">{label}</h3>

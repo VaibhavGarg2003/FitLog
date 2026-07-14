@@ -18,7 +18,7 @@ interface WeightChartProps {
 export function WeightChart({ history, targetWeight }: WeightChartProps) {
   if (history.length < 2) {
     return (
-      <div className="bg-surface rounded-2xl p-6 border border-border flex items-center justify-center h-48">
+      <div className="bg-surface rounded-2xl p-6 border border-border flex items-center justify-center h-48 lg:h-64">
         <p className="text-sm text-text-muted text-center">
           Log at least 2 weight entries to see your chart 📈
         </p>
@@ -26,10 +26,10 @@ export function WeightChart({ history, targetWeight }: WeightChartProps) {
     );
   }
 
-  // Chart dimensions
-  const width = 400;
-  const height = 180;
-  const padding = { top: 20, right: 20, bottom: 30, left: 45 };
+  // Chart dimensions — wider viewBox + taller height use the laptop canvas
+  const width = 720;
+  const height = 260;
+  const padding = { top: 20, right: 24, bottom: 30, left: 45 };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
@@ -63,14 +63,14 @@ export function WeightChart({ history, targetWeight }: WeightChartProps) {
     : null;
 
   return (
-    <div className="bg-surface rounded-2xl p-4 border border-border">
-      <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3">
+    <div className="bg-surface rounded-2xl p-4 lg:p-6 border border-border">
+      <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3 lg:mb-4">
         Weight Trend
       </h3>
 
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        className="w-full h-auto"
+        className="w-full h-auto min-h-[11rem] lg:min-h-[16rem]"
         preserveAspectRatio="xMidYMid meet"
       >
         <defs>

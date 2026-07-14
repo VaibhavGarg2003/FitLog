@@ -35,17 +35,17 @@ export function TopNav() {
   return (
     <header
       className={cn(
-        // Stays pinned to the top while the page scrolls
-        "sticky top-0 z-40",
+        // Full-width bar edge-to-edge (not a centered max-width strip)
+        "sticky top-0 z-40 w-full",
         // Glassmorphism — matches BottomNav's treatment
         "bg-surface/80 backdrop-blur-xl",
         "border-b border-border"
       )}
     >
-      {/* Width-matched to the page content container in (app)/layout.tsx */}
-      <div className="flex items-center justify-between h-14 px-4 lg:px-6 max-w-lg lg:max-w-5xl mx-auto">
+      {/* Same horizontal gutters as <main> — content spans the full bar */}
+      <div className="flex items-center justify-between h-14 w-full px-4 sm:px-6 lg:px-8 xl:px-10">
         {/* Logo → landing page. This is the mobile "home" affordance. */}
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/" className="flex items-center gap-2 shrink-0">
           <Dumbbell className="text-primary" size={24} />
           <span className="text-lg font-bold font-[family-name:var(--font-outfit)]">
             {APP_NAME}

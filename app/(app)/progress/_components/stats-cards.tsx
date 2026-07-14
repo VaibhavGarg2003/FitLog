@@ -54,16 +54,17 @@ export function StatsCards({
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-3">
+    // Phone: 2×2. Laptop: one row of four fills the wider stats region.
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-3 h-full">
       {stats.map((stat) => (
         <div
           key={stat.label}
-          className="bg-surface rounded-xl p-3 border border-border"
+          className="bg-surface rounded-xl p-3 lg:p-4 border border-border"
         >
-          <p className="text-[10px] text-text-muted uppercase tracking-wider">
+          <p className="text-[10px] lg:text-xs text-text-muted uppercase tracking-wider">
             {stat.label}
           </p>
-          <p className={`text-lg font-bold ${stat.color}`}>{stat.value}</p>
+          <p className={`text-lg lg:text-xl font-bold ${stat.color}`}>{stat.value}</p>
           {stat.subtitle && (
             <p className="text-[10px] text-text-muted mt-0.5">
               {stat.subtitle}

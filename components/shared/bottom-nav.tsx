@@ -69,7 +69,8 @@ export function BottomNav() {
         "pb-[env(safe-area-inset-bottom)]"
       )}
     >
-      <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
+      {/* Full-width tab row — no max-width cap; tabs share 100% evenly */}
+      <div className="flex items-center justify-around h-16 w-full">
         {NAV_ITEMS.map((item) => {
           // Check if this tab is currently active.
           // /workout/123 should highlight the Workout tab.

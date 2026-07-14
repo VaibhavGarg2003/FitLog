@@ -46,11 +46,11 @@ export function CalorieRing({ consumed, target }: CalorieRingProps) {
   }
 
   return (
-    <div className="bg-surface rounded-2xl p-6 border border-border">
-      <div className="flex items-center gap-6">
+    <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border h-full">
+      <div className="flex items-center gap-6 lg:gap-8">
         {/* SVG Ring */}
         <div className="relative flex-shrink-0">
-          <svg width="160" height="160" className="transform -rotate-90">
+          <svg width="160" height="160" className="transform -rotate-90 lg:w-[180px] lg:h-[180px]">
             {/* Background ring */}
             <circle
               cx="80"
@@ -79,7 +79,7 @@ export function CalorieRing({ consumed, target }: CalorieRingProps) {
           </svg>
           {/* Center text */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-2xl font-bold text-text-primary">
+            <span className="text-2xl lg:text-3xl font-bold text-text-primary">
               {consumed.toLocaleString()}
             </span>
             <span className="text-xs text-text-muted">kcal eaten</span>
@@ -87,10 +87,10 @@ export function CalorieRing({ consumed, target }: CalorieRingProps) {
         </div>
 
         {/* Right side stats */}
-        <div className="flex-1 space-y-3">
+        <div className="flex-1 space-y-3 lg:space-y-4">
           <div>
             <p className="text-xs text-text-muted uppercase tracking-wider">Target</p>
-            <p className="text-lg font-bold text-text-primary">
+            <p className="text-lg lg:text-xl font-bold text-text-primary">
               {target.toLocaleString()} kcal
             </p>
           </div>
@@ -99,7 +99,7 @@ export function CalorieRing({ consumed, target }: CalorieRingProps) {
               {consumed > target ? "Over by" : "Remaining"}
             </p>
             <p className={cn(
-              "text-lg font-bold",
+              "text-lg lg:text-xl font-bold",
               consumed > target ? "text-danger" : "text-success"
             )}>
               {consumed > target

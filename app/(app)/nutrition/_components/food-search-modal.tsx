@@ -91,7 +91,7 @@ export function FoodSearchModal({
       />
 
       {/* Modal */}
-      <div className="relative bg-surface-elevated rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col border border-border">
+      <div className="relative bg-surface-elevated rounded-t-2xl sm:rounded-2xl w-full max-w-lg lg:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col border border-border">
         {/* Header */}
         <div className="p-4 border-b border-border flex justify-between items-center">
           <h2 className="font-bold text-text-primary">

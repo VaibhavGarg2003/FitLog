@@ -7,6 +7,9 @@
  * Shows all meals for the selected date organized by meal type.
  * Each meal section has "Add Food" (search) and "AI ✨" (text) buttons.
  *
+ * LAYOUT (laptop): denser summary strip + 2-column meal grid with more
+ * gap so the wide shell feels intentionally filled.
+ *
  * DATA FLOW:
  * ──────────
  * selectedDate (ui-store.ts — Step 1)
@@ -59,10 +62,10 @@ export default function NutritionPage() {
   >(null);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold font-[family-name:var(--font-outfit)]">
+        <h1 className="text-2xl lg:text-3xl font-bold font-[family-name:var(--font-outfit)]">
           Nutrition
         </h1>
         <p className="text-text-secondary text-sm mt-0.5">
@@ -73,39 +76,48 @@ export default function NutritionPage() {
       {/* Date Selector — shared with dashboard */}
       <DateStrip />
 
-      {/* Daily Summary Bar */}
+      {/* Daily Summary Bar — denser on laptop */}
       {daily && (
-        <div className="bg-surface rounded-xl p-3 border border-border flex justify-between text-center">
-          <div>
-            <p className="text-lg font-bold text-text-primary">
+        <div className="bg-surface rounded-xl p-3 lg:p-4 border border-border grid grid-cols-4 gap-2 text-center lg:gap-4">
+          <div className="lg:py-1">
+            <p className="text-lg lg:text-2xl font-bold text-text-primary">
               {daily.totalCalories}
             </p>
-            <p className="text-[10px] text-text-muted">kcal</p>
+            <p className="text-[10px] lg:text-xs text-text-muted">kcal</p>
           </div>
-          <div>
-            <p className="text-lg font-bold" style={{ color: "var(--color-protein)" }}>
+          <div className="lg:py-1">
+            <p
+              className="text-lg lg:text-2xl font-bold"
+              style={{ color: "var(--color-protein)" }}
+            >
               {daily.totalProtein}g
             </p>
-            <p className="text-[10px] text-text-muted">protein</p>
+            <p className="text-[10px] lg:text-xs text-text-muted">protein</p>
           </div>
-          <div>
-            <p className="text-lg font-bold" style={{ color: "var(--color-carbs)" }}>
+          <div className="lg:py-1">
+            <p
+              className="text-lg lg:text-2xl font-bold"
+              style={{ color: "var(--color-carbs)" }}
+            >
               {daily.totalCarbs}g
             </p>
-            <p className="text-[10px] text-text-muted">carbs</p>
+            <p className="text-[10px] lg:text-xs text-text-muted">carbs</p>
           </div>
-          <div>
-            <p className="text-lg font-bold" style={{ color: "var(--color-fat)" }}>
+          <div className="lg:py-1">
+            <p
+              className="text-lg lg:text-2xl font-bold"
+              style={{ color: "var(--color-fat)" }}
+            >
               {daily.totalFat}g
             </p>
-            <p className="text-[10px] text-text-muted">fat</p>
+            <p className="text-[10px] lg:text-xs text-text-muted">fat</p>
           </div>
         </div>
       )}
 
       {/* Meal Sections — stacked on mobile, 2-column grid on desktop.
           Each meal (section + its slide-open AI input) is one grid cell. */}
-      <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
+      <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
         {MEALS.map((meal) => {
           // Find the meal entry for this meal type from the fetched meals
           const entry = meals?.find((m) => m.mealType === meal.type);
@@ -154,5 +166,3 @@ export default function NutritionPage() {
     </div>
   );
 }
-
-

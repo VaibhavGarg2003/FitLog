@@ -81,7 +81,7 @@ export default function RootLayout({
       // We add font variables to <html> so they're available
       // to ALL descendants via CSS var(--font-inter).
     >
-      <body>
+      <body className="w-full min-h-dvh bg-background">
         <QueryProvider>
           {/* QueryProvider wraps everything so any component
               can use useQuery() / useMutation() hooks */}

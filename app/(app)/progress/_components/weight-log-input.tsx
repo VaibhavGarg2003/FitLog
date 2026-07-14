@@ -28,7 +28,7 @@ export function WeightLogInput() {
   }
 
   return (
-    <div className="bg-surface rounded-2xl p-4 border border-border">
+    <div className="bg-surface rounded-2xl p-4 lg:p-5 border border-border h-full">
       <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3">
         Log Today&apos;s Weight
       </h3>

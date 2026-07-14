@@ -8,10 +8,12 @@
  * or activity level changes, "Recalculate Targets" reruns the
  * engine and saves new targets to the database.
  *
+ * LAYOUT (laptop): targets + account on the left, edit form on the
+ * right so the wide shell is used without stretching form fields edge-to-edge.
+ *
  * FLOW:
  * User changes weight → clicks "Recalculate Targets"
- *   → PUT /api/profile (Step 3 — to be created if needed,
- *     or POST to existing recalculate endpoint)
+ *   → PUT /api/profile
  *   → profile.service.ts recalculateProfile() (Step 2)
  *     → calculateFullProfile() (Step 2 engine)
  *       → new protein, carbs, fat targets
@@ -108,20 +110,22 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 lg:max-w-2xl lg:mx-auto">
-        <h1 className="text-2xl font-bold font-[family-name:var(--font-outfit)]">
+      <div className="space-y-4 lg:space-y-5">
+        <h1 className="text-2xl lg:text-3xl font-bold font-[family-name:var(--font-outfit)]">
           Settings
         </h1>
-        <div className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-64" />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5">
+          <div className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-48 lg:col-span-4" />
+          <div className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-64 lg:col-span-8" />
+        </div>
       </div>
     );
   }
 
   return (
-    // Form page — keep a comfortable reading column even on wide screens.
-    <div className="space-y-4 lg:max-w-2xl lg:mx-auto">
+    <div className="space-y-4 lg:space-y-5">
       <div>
-        <h1 className="text-2xl font-bold font-[family-name:var(--font-outfit)]">
+        <h1 className="text-2xl lg:text-3xl font-bold font-[family-name:var(--font-outfit)]">
           Settings
         </h1>
         <p className="text-text-secondary text-sm mt-0.5">
@@ -129,170 +133,176 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* Current Stats */}
-      <div className="bg-surface rounded-2xl p-5 border border-border space-y-3">
-        <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
-          Current Targets
-        </h2>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="text-xs text-text-muted">Calories</p>
-            <p className="text-lg font-bold text-text-primary">
-              {profile?.targetCalories ?? "—"} kcal
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5 lg:items-start">
+        {/* Left: read-only targets + account */}
+        <div className="space-y-4 lg:col-span-4">
+          <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-3">
+            <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+              Current Targets
+            </h2>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-text-muted">Calories</p>
+                <p className="text-lg font-bold text-text-primary">
+                  {profile?.targetCalories ?? "—"} kcal
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-text-muted">TDEE</p>
+                <p className="text-lg font-bold text-text-primary">
+                  {profile?.tdee ?? "—"} kcal
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-text-muted">Protein</p>
+                <p className="text-lg font-bold" style={{ color: "var(--color-protein)" }}>
+                  {profile?.targetProtein ?? "—"}g
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-text-muted">Carbs / Fat</p>
+                <p className="text-sm font-bold text-text-primary">
+                  {profile?.targetCarbs ?? "—"}g / {profile?.targetFat ?? "—"}g
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-3">
+            <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+              Account
+            </h2>
+            <p className="text-sm text-text-primary">
+              {profile?.user?.name ?? "—"}
             </p>
-          </div>
-          <div>
-            <p className="text-xs text-text-muted">TDEE</p>
-            <p className="text-lg font-bold text-text-primary">
-              {profile?.tdee ?? "—"} kcal
+            <p className="text-xs text-text-muted">
+              {profile?.user?.email ?? "—"}
             </p>
-          </div>
-          <div>
-            <p className="text-xs text-text-muted">Protein</p>
-            <p className="text-lg font-bold" style={{ color: "var(--color-protein)" }}>
-              {profile?.targetProtein ?? "—"}g
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-text-muted">Carbs / Fat</p>
-            <p className="text-sm font-bold text-text-primary">
-              {profile?.targetCarbs ?? "—"}g / {profile?.targetFat ?? "—"}g
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Editable Fields */}
-      <div className="bg-surface rounded-2xl p-5 border border-border space-y-4">
-        <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
-          Update Profile
-        </h2>
-
-        {/* Weight */}
-        <div>
-          <label className="block text-sm text-text-secondary mb-1">
-            Current Weight (kg)
-          </label>
-          <input
-            type="number"
-            inputMode="decimal"
-            value={weight}
-            onChange={(e) => setWeight(e.target.value)}
-            className="w-full p-3 bg-background border border-border rounded-xl text-text-primary focus:border-primary focus:outline-none"
-          />
-        </div>
-
-        {/* Activity Level */}
-        <div>
-          <label className="block text-sm text-text-secondary mb-2">
-            Activity Level
-          </label>
-          <div className="space-y-1.5">
-            {ACTIVITY_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setActivity(opt.value)}
-                className={cn(
-                  "w-full p-3 rounded-lg text-left text-sm transition-colors",
-                  activity === opt.value
-                    ? "bg-primary/10 text-primary border border-primary/30"
-                    : "bg-background border border-border text-text-secondary hover:border-text-muted"
-                )}
-              >
-                <span className="font-medium">{opt.label}</span>
-                <span className="text-text-muted ml-2 text-xs">{opt.desc}</span>
-              </button>
-            ))}
+            <button
+              onClick={handleSignOut}
+              disabled={signingOut}
+              className={cn(
+                "w-full mt-2 py-2.5 px-4 rounded-xl text-sm font-semibold",
+                "border border-red-500/40 text-red-400",
+                "hover:bg-red-500/10 transition-colors",
+                "disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
+            >
+              {signingOut ? "Signing out..." : "🚪 Sign Out"}
+            </button>
           </div>
         </div>
 
-        {/* Goal */}
-        <div>
-          <label className="block text-sm text-text-secondary mb-2">
-            Goal
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            {GOAL_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setGoal(opt.value)}
-                className={cn(
-                  "p-3 rounded-lg text-sm font-medium transition-colors",
-                  goal === opt.value
-                    ? "bg-primary/10 text-primary border border-primary/30"
-                    : "bg-background border border-border text-text-secondary hover:border-text-muted"
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
+        {/* Right: edit form */}
+        <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-4 lg:col-span-8">
+          <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+            Update Profile
+          </h2>
+
+          {/* Weight + activity in a 2-col region on large screens */}
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:gap-5">
+            {/* Weight */}
+            <div>
+              <label className="block text-sm text-text-secondary mb-1">
+                Current Weight (kg)
+              </label>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                className="w-full p-3 bg-background border border-border rounded-xl text-text-primary focus:border-primary focus:outline-none"
+              />
+            </div>
+
+            {/* Activity Level */}
+            <div className="xl:col-span-2">
+              <label className="block text-sm text-text-secondary mb-2">
+                Activity Level
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {ACTIVITY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setActivity(opt.value)}
+                    className={cn(
+                      "w-full p-3 rounded-lg text-left text-sm transition-colors",
+                      activity === opt.value
+                        ? "bg-primary/10 text-primary border border-primary/30"
+                        : "bg-background border border-border text-text-secondary hover:border-text-muted"
+                    )}
+                  >
+                    <span className="font-medium">{opt.label}</span>
+                    <span className="text-text-muted ml-2 text-xs">{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Goal */}
+            <div>
+              <label className="block text-sm text-text-secondary mb-2">
+                Goal
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {GOAL_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setGoal(opt.value)}
+                    className={cn(
+                      "p-3 rounded-lg text-sm font-medium transition-colors",
+                      goal === opt.value
+                        ? "bg-primary/10 text-primary border border-primary/30"
+                        : "bg-background border border-border text-text-secondary hover:border-text-muted"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Dietary Type */}
+            <div>
+              <label className="block text-sm text-text-secondary mb-2">
+                Diet Type
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {DIET_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setDietary(opt.value)}
+                    className={cn(
+                      "p-3 rounded-lg text-sm font-medium transition-colors",
+                      dietary === opt.value
+                        ? "bg-primary/10 text-primary border border-primary/30"
+                        : "bg-background border border-border text-text-secondary hover:border-text-muted"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
 
-        {/* Dietary Type */}
-        <div>
-          <label className="block text-sm text-text-secondary mb-2">
-            Diet Type
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            {DIET_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setDietary(opt.value)}
-                className={cn(
-                  "p-3 rounded-lg text-sm font-medium transition-colors",
-                  dietary === opt.value
-                    ? "bg-primary/10 text-primary border border-primary/30"
-                    : "bg-background border border-border text-text-secondary hover:border-text-muted"
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
+          {/* Recalculate Button */}
+          <button
+            type="button"
+            onClick={handleRecalculate}
+            disabled={saving}
+            className="w-full py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
+          >
+            {saving ? "Recalculating..." : "Recalculate Targets"}
+          </button>
 
-        {/* Recalculate Button */}
-        <button
-          type="button"
-          onClick={handleRecalculate}
-          disabled={saving}
-          className="w-full py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
-        >
-          {saving ? "Recalculating..." : "Recalculate Targets"}
-        </button>
-
-        {message && (
-          <p className="text-sm text-center">{message}</p>
-        )}
-      </div>
-
-      {/* Account Info + Sign Out */}
-      <div className="bg-surface rounded-2xl p-5 border border-border space-y-3">
-        <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
-          Account
-        </h2>
-        <p className="text-sm text-text-primary">
-          {profile?.user?.name ?? "—"}
-        </p>
-        <p className="text-xs text-text-muted">
-          {profile?.user?.email ?? "—"}
-        </p>
-        <button
-          onClick={handleSignOut}
-          disabled={signingOut}
-          className={cn(
-            "w-full mt-2 py-2.5 px-4 rounded-xl text-sm font-semibold",
-            "border border-red-500/40 text-red-400",
-            "hover:bg-red-500/10 transition-colors",
-            "disabled:opacity-50 disabled:cursor-not-allowed"
+          {message && (
+            <p className="text-sm text-center">{message}</p>
           )}
-        >
-          {signingOut ? "Signing out..." : "🚪 Sign Out"}
-        </button>
+        </div>
       </div>
     </div>
   );

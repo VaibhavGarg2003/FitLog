@@ -47,12 +47,14 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    // Full-viewport app shell — background + chrome always 100% wide.
+    // No pixel max-width on the shell; only horizontal padding as gutters.
+    // Page components use grids inside this full-width main.
+    <div className="w-full min-h-dvh bg-background flex flex-col">
       {/* Desktop nav + mobile logo/home bar (responsive; see top-nav.tsx) */}
       <TopNav />
-      {/* Wider canvas on desktop; bottom padding only needed below lg where
-          the fixed BottomNav sits. */}
-      <main className="px-4 pt-4 pb-24 lg:pb-8 max-w-lg lg:max-w-5xl mx-auto">
+      {/* Bottom padding only below lg where the fixed BottomNav sits. */}
+      <main className="w-full flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 pt-4 pb-24 lg:pb-8">
         {children}
       </main>
       <BottomNav />

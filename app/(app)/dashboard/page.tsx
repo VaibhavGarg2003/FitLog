@@ -12,6 +12,10 @@
  * 5. WorkoutInfo — today's burn estimate (INFO ONLY — never added to budget)
  * 6. TodayMeals — quick summary of meals logged
  *
+ * LAYOUT (laptop):
+ * 12-column grid — hero calorie + macros on top, goal/workout mid row,
+ * meals full-width bottom so the wide canvas feels filled.
+ *
  * DATA FLOW:
  * ──────────
  * useProfile()       → targets (targetCalories, targetProtein, etc.) — Step 2
@@ -61,10 +65,10 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold font-[family-name:var(--font-outfit)]">
+        <h1 className="text-2xl lg:text-3xl font-bold font-[family-name:var(--font-outfit)]">
           Dashboard
         </h1>
         <p className="text-text-secondary text-sm mt-0.5">
@@ -77,53 +81,64 @@ export default function DashboardPage() {
 
       {/* Loading State */}
       {isLoading ? (
-        <div className="space-y-4">
-          {[1, 2, 3].map((i) => (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5">
+          {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-32"
+              className={`bg-surface rounded-2xl p-6 border border-border animate-pulse h-36 lg:h-44 ${
+                i <= 2 ? "lg:col-span-6" : i === 3 ? "lg:col-span-6" : "lg:col-span-6"
+              }`}
             />
           ))}
         </div>
       ) : (
-        // Single column on mobile; two columns on desktop to fill the wider
-        // canvas. items-start so cards size to their own height, not the row.
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
-          {/* Calorie Ring — consumed vs target */}
-          <CalorieRing consumed={consumed.calories} target={targets.calories} />
+        // Phone: single column. Laptop: 12-col regions so the wide shell is used.
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5 lg:items-start">
+          {/* Calorie Ring — hero left */}
+          <div className="lg:col-span-5">
+            <CalorieRing consumed={consumed.calories} target={targets.calories} />
+          </div>
 
-          {/* Macro Bars — protein/carbs/fat */}
-          <MacroBars
-            consumed={{
-              protein: consumed.protein,
-              carbs: consumed.carbs,
-              fat: consumed.fat,
-            }}
-            targets={{
-              protein: targets.protein,
-              carbs: targets.carbs,
-              fat: targets.fat,
-            }}
-          />
+          {/* Macro Bars — roomy right */}
+          <div className="lg:col-span-7">
+            <MacroBars
+              consumed={{
+                protein: consumed.protein,
+                carbs: consumed.carbs,
+                fat: consumed.fat,
+              }}
+              targets={{
+                protein: targets.protein,
+                carbs: targets.carbs,
+                fat: targets.fat,
+              }}
+            />
+          </div>
 
           {/* Goal Progress */}
-          <GoalProgress
-            currentWeight={profile?.weightKg ?? null}
-            targetWeight={null}
-            startWeight={profile?.weightKg ?? null}
-            goal={profile?.goal ?? null}
-          />
+          <div className="lg:col-span-6">
+            <GoalProgress
+              currentWeight={profile?.weightKg ?? null}
+              targetWeight={null}
+              startWeight={profile?.weightKg ?? null}
+              goal={profile?.goal ?? null}
+            />
+          </div>
 
           {/* Workout Info (INFO ONLY — never added to budget) */}
-          <WorkoutInfo
-            sessionCount={0}
-            totalCaloriesLow={0}
-            totalCaloriesHigh={0}
-            totalMinutes={0}
-          />
+          <div className="lg:col-span-6">
+            <WorkoutInfo
+              sessionCount={0}
+              totalCaloriesLow={0}
+              totalCaloriesHigh={0}
+              totalMinutes={0}
+            />
+          </div>
 
-          {/* Today's Meals */}
-          <TodayMeals meals={[]} />
+          {/* Today's Meals — full width on laptop */}
+          <div className="lg:col-span-12">
+            <TodayMeals meals={[]} />
+          </div>
         </div>
       )}
     </div>

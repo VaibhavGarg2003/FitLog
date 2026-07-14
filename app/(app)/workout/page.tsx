@@ -11,6 +11,11 @@
  * 4. Finish Session → engine calculates calorie burn (info only)
  * 5. See Session Summary
  *
+ * LAYOUT (laptop):
+ * - Idle: start/templates left, today's sessions right
+ * - Active: logger / finish form left, checklist + controls right
+ * - Completion card: centered readable width inside the wide shell
+ *
  * ENGINE CONNECTION:
  * calculateStrengthBurn() from Step 2 → called in finishSession()
  * calculateCardioBurn() from Step 2 → called for cardio exercises
@@ -192,12 +197,118 @@ export default function WorkoutPage() {
     (s: { status: string }) => s.status === "COMPLETED"
   ) ?? [];
 
+  const plannedChecklist =
+    plannedExercises && plannedExercises.length > 0 ? (
+      <div className="bg-surface rounded-2xl border border-border divide-y divide-border overflow-hidden">
+        {plannedExercises.map((planned) => {
+          const done = doneExerciseIds.has(planned.exerciseId);
+          const isCurrent = activeExercise?.id === planned.exerciseId;
+          return (
+            <button
+              key={planned.exerciseId}
+              type="button"
+              onClick={() => {
+                setActiveExercise({
+                  id: planned.exerciseId,
+                  name: planned.name,
+                  muscleGroup: planned.muscleGroup,
+                  category: planned.category,
+                  metValue: planned.metValue,
+                  isCompound: planned.isCompound,
+                });
+                setSetsLogged(0);
+                setShowFinish(false);
+              }}
+              className={`w-full p-3 px-4 flex items-center gap-3 text-left hover:bg-surface-hover transition-colors ${
+                isCurrent ? "bg-primary/5" : ""
+              }`}
+            >
+              <span className="text-lg leading-none">
+                {done ? "✅" : "⬜"}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span
+                  className={`block text-sm font-medium truncate ${
+                    done
+                      ? "text-text-muted line-through"
+                      : "text-text-primary"
+                  }`}
+                >
+                  {planned.name}
+                </span>
+                <span className="block text-xs text-text-muted">
+                  {planned.muscleGroup} · {planned.targetSets} set
+                  {planned.targetSets !== 1 ? "s" : ""} planned
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    ) : null;
+
+  const sessionControls = (
+    <div className="space-y-3">
+      <p className="text-xs text-text-muted">
+        {totalSetsInSession} set{totalSetsInSession !== 1 ? "s" : ""} logged
+      </p>
+
+      {/* On phone, checklist lives here with controls; on laptop it also
+          appears in the right column while logging so users can switch. */}
+      {!activeExercise && !showFinish && plannedChecklist}
+
+      <button
+        type="button"
+        onClick={() => setShowBrowser(true)}
+        className="w-full py-4 bg-surface border-2 border-dashed border-border rounded-2xl text-text-secondary font-medium hover:border-primary hover:text-primary transition-colors"
+      >
+        + Add Exercise
+      </button>
+      <button
+        type="button"
+        onClick={handleAttemptFinish}
+        className="w-full py-3 bg-primary/10 text-primary font-semibold rounded-xl hover:bg-primary/20 transition-colors"
+      >
+        Finish Workout
+      </button>
+      {finishError && (
+        <p className="text-sm text-red-400 text-center">{finishError}</p>
+      )}
+    </div>
+  );
+
+  const sessionsList =
+    completedSessions.length > 0 ? (
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+          Today&apos;s Sessions
+        </h2>
+        {completedSessions.map((session: {
+          id: string;
+          durationMin?: number;
+          caloriesBurnedLow?: number;
+          caloriesBurnedHigh?: number;
+          status: string;
+          exerciseSets: Array<{
+            id: string;
+            setNumber: number;
+            weight?: number;
+            reps?: number;
+            rpe?: number;
+            isWarmup: boolean;
+            exercise: { name: string; muscleGroup: string };
+          }>;
+        }) => (
+          <SessionSummary key={session.id} session={session} />
+        ))}
+      </div>
+    ) : null;
+
   return (
-    // Task flow — keep a comfortable reading column even on wide screens.
-    <div className="space-y-4 lg:max-w-2xl lg:mx-auto">
+    <div className="space-y-4 lg:space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold font-[family-name:var(--font-outfit)]">
+        <h1 className="text-2xl lg:text-3xl font-bold font-[family-name:var(--font-outfit)]">
           Workout
         </h1>
         <p className="text-text-secondary text-sm mt-0.5">
@@ -207,213 +318,210 @@ export default function WorkoutPage() {
 
       <DateStrip />
 
-      {/* Active Session */}
+      {/* Active Session — split logger | checklist on laptop */}
       {activeSessionId ? (
-        <div className="space-y-4">
-          {activeExercise ? (
-            <SetLogger
-              exerciseName={activeExercise.name}
-              setsLogged={setsLogged}
-              isPending={logSet.isPending}
-              onLogSet={handleLogSet}
-              onDone={() => {
-                // If this exercise was part of the template plan and got at
-                // least one set, tick it off the checklist.
-                if (setsLogged > 0) {
-                  const finishedId = activeExercise.id;
-                  setDoneExerciseIds((prev) => new Set(prev).add(finishedId));
-                }
-                setActiveExercise(null);
-                setSetsLogged(0);
-              }}
-            />
-          ) : showFinish ? (
-            /* Fix 7: Duration screen — now has a Back button */
-            <div className="bg-surface rounded-2xl border border-border p-4 space-y-4">
-              <div className="flex items-center gap-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5 lg:items-start">
+          <div className="space-y-4 lg:col-span-7">
+            {activeExercise ? (
+              <SetLogger
+                exerciseName={activeExercise.name}
+                setsLogged={setsLogged}
+                isPending={logSet.isPending}
+                onLogSet={handleLogSet}
+                onDone={() => {
+                  // If this exercise was part of the template plan and got at
+                  // least one set, tick it off the checklist.
+                  if (setsLogged > 0) {
+                    const finishedId = activeExercise.id;
+                    setDoneExerciseIds((prev) => new Set(prev).add(finishedId));
+                  }
+                  setActiveExercise(null);
+                  setSetsLogged(0);
+                }}
+              />
+            ) : showFinish ? (
+              /* Duration screen — has a Back button */
+              <div className="bg-surface rounded-2xl border border-border p-4 lg:p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowFinish(false)}
+                    className="text-sm text-text-secondary hover:text-text-primary transition-colors"
+                  >
+                    ← Back
+                  </button>
+                  <h3 className="font-semibold text-text-primary">
+                    Finish Workout
+                  </h3>
+                </div>
+                <div>
+                  <label className="block text-sm text-text-secondary mb-1">
+                    How long was your workout? (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    value={duration}
+                    onChange={(e) => setDuration(e.target.value)}
+                    className="w-full p-3 bg-background border border-border rounded-xl text-text-primary focus:border-primary focus:outline-none"
+                  />
+                </div>
                 <button
                   type="button"
-                  onClick={() => setShowFinish(false)}
-                  className="text-sm text-text-secondary hover:text-text-primary transition-colors"
+                  onClick={handleFinish}
+                  disabled={finishSession.isPending}
+                  className="w-full py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-hover disabled:opacity-50"
                 >
-                  ← Back
+                  {finishSession.isPending ? "Finishing..." : "Complete Workout ✅"}
                 </button>
-                <h3 className="font-semibold text-text-primary">
+              </div>
+            ) : (
+              // Phone: full session UI. Laptop: primary column still shows
+              // controls; checklist also mirrors on the right when present.
+              <div className="lg:hidden">{sessionControls}</div>
+            )}
+
+            {/* Laptop primary column when no exercise selected and not finishing:
+                compact status + primary actions (checklist is on the right). */}
+            {!activeExercise && !showFinish && (
+              <div className="hidden lg:block space-y-3">
+                <p className="text-xs text-text-muted">
+                  {totalSetsInSession} set
+                  {totalSetsInSession !== 1 ? "s" : ""} logged this session
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowBrowser(true)}
+                  className="w-full py-4 bg-surface border-2 border-dashed border-border rounded-2xl text-text-secondary font-medium hover:border-primary hover:text-primary transition-colors"
+                >
+                  + Add Exercise
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAttemptFinish}
+                  className="w-full py-3 bg-primary/10 text-primary font-semibold rounded-xl hover:bg-primary/20 transition-colors"
+                >
                   Finish Workout
-                </h3>
+                </button>
+                {finishError && (
+                  <p className="text-sm text-red-400 text-center">{finishError}</p>
+                )}
               </div>
-              <div>
-                <label className="block text-sm text-text-secondary mb-1">
-                  How long was your workout? (minutes)
-                </label>
-                <input
-                  type="number"
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                  className="w-full p-3 bg-background border border-border rounded-xl text-text-primary focus:border-primary focus:outline-none"
-                />
+            )}
+          </div>
+
+          {/* Secondary column — checklist + actions while logging on laptop */}
+          <div className="hidden lg:block lg:col-span-5 space-y-3">
+            <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+              {plannedExercises?.length ? "Session Plan" : "Session"}
+            </h2>
+            {plannedChecklist}
+            {!plannedChecklist && (
+              <div className="bg-surface rounded-2xl border border-border p-5 text-sm text-text-muted">
+                Add exercises as you go, or finish when you&apos;re done.
               </div>
-              <button
-                type="button"
-                onClick={handleFinish}
-                disabled={finishSession.isPending}
-                className="w-full py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-hover disabled:opacity-50"
-              >
-                {finishSession.isPending ? "Finishing..." : "Complete Workout ✅"}
-              </button>
-            </div>
-          ) : (
-            /* Fix 6: Validate before showing finish screen */
-            <div className="space-y-3">
-              <p className="text-xs text-text-muted">
-                {totalSetsInSession} set{totalSetsInSession !== 1 ? "s" : ""} logged
-              </p>
-
-              {/* Planned exercises (session started from a template) */}
-              {plannedExercises && plannedExercises.length > 0 && (
-                <div className="bg-surface rounded-2xl border border-border divide-y divide-border overflow-hidden">
-                  {plannedExercises.map((planned) => {
-                    const done = doneExerciseIds.has(planned.exerciseId);
-                    return (
-                      <button
-                        key={planned.exerciseId}
-                        type="button"
-                        onClick={() => {
-                          setActiveExercise({
-                            id: planned.exerciseId,
-                            name: planned.name,
-                            muscleGroup: planned.muscleGroup,
-                            category: planned.category,
-                            metValue: planned.metValue,
-                            isCompound: planned.isCompound,
-                          });
-                          setSetsLogged(0);
-                        }}
-                        className="w-full p-3 px-4 flex items-center gap-3 text-left hover:bg-surface-hover transition-colors"
-                      >
-                        <span className="text-lg leading-none">
-                          {done ? "✅" : "⬜"}
-                        </span>
-                        <span className="flex-1 min-w-0">
-                          <span
-                            className={`block text-sm font-medium truncate ${
-                              done
-                                ? "text-text-muted line-through"
-                                : "text-text-primary"
-                            }`}
-                          >
-                            {planned.name}
-                          </span>
-                          <span className="block text-xs text-text-muted">
-                            {planned.muscleGroup} · {planned.targetSets} set
-                            {planned.targetSets !== 1 ? "s" : ""} planned
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setShowBrowser(true)}
-                className="w-full py-4 bg-surface border-2 border-dashed border-border rounded-2xl text-text-secondary font-medium hover:border-primary hover:text-primary transition-colors"
-              >
-                + Add Exercise
-              </button>
-              <button
-                type="button"
-                onClick={handleAttemptFinish}
-                className="w-full py-3 bg-primary/10 text-primary font-semibold rounded-xl hover:bg-primary/20 transition-colors"
-              >
-                Finish Workout
-              </button>
-              {/* Error when user tries to finish with 0 sets */}
-              {finishError && (
-                <p className="text-sm text-red-400 text-center">{finishError}</p>
-              )}
-            </div>
-          )}
+            )}
+            {(activeExercise || showFinish) && (
+              <div className="space-y-2">
+                <p className="text-xs text-text-muted">
+                  {totalSetsInSession} set
+                  {totalSetsInSession !== 1 ? "s" : ""} logged
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowBrowser(true)}
+                  className="w-full py-3 bg-surface border border-border rounded-xl text-text-secondary font-medium hover:border-primary hover:text-primary transition-colors text-sm"
+                >
+                  + Add Exercise
+                </button>
+                {!showFinish && (
+                  <button
+                    type="button"
+                    onClick={handleAttemptFinish}
+                    className="w-full py-3 bg-primary/10 text-primary font-semibold rounded-xl hover:bg-primary/20 transition-colors text-sm"
+                  >
+                    Finish Workout
+                  </button>
+                )}
+                {finishError && (
+                  <p className="text-sm text-red-400 text-center">{finishError}</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       ) : workoutCompleted ? (
-        /* Fix 5: Workout completion card — shown instead of blank page */
-        <div className="bg-surface rounded-2xl border border-primary/30 p-6 space-y-4 text-center"
-          style={{ boxShadow: "0 4px 24px rgba(34, 197, 94, 0.15)" }}
-        >
-          <div className="text-5xl">🎉</div>
-          <div>
-            <h3 className="text-xl font-bold text-text-primary">Workout Complete!</h3>
-            <p className="text-text-muted text-sm mt-1">Great job — session saved.</p>
-          </div>
-          <div className="flex justify-around py-2">
-            <div>
-              <p className="text-2xl font-bold text-primary">{workoutCompleted.totalSets}</p>
-              <p className="text-xs text-text-muted">Total Sets</p>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-primary">{workoutCompleted.durationMin}</p>
-              <p className="text-xs text-text-muted">Minutes</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setWorkoutCompleted(null)}
-            className="w-full py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-hover transition-colors"
+        /* Completion card — readable width, centered in the shell */
+        <div className="max-w-lg mx-auto">
+          <div
+            className="bg-surface rounded-2xl border border-primary/30 p-6 lg:p-8 space-y-4 text-center"
+            style={{ boxShadow: "0 4px 24px rgba(34, 197, 94, 0.15)" }}
           >
-            Done
-          </button>
+            <div className="text-5xl">🎉</div>
+            <div>
+              <h3 className="text-xl font-bold text-text-primary">Workout Complete!</h3>
+              <p className="text-text-muted text-sm mt-1">Great job — session saved.</p>
+            </div>
+            <div className="flex justify-around py-2">
+              <div>
+                <p className="text-2xl font-bold text-primary">{workoutCompleted.totalSets}</p>
+                <p className="text-xs text-text-muted">Total Sets</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-primary">{workoutCompleted.durationMin}</p>
+                <p className="text-xs text-text-muted">Minutes</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWorkoutCompleted(null)}
+              className="w-full py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-hover transition-colors"
+            >
+              Done
+            </button>
+          </div>
         </div>
       ) : (
-        /* Start options: blank session or from a saved template */
-        <div className="space-y-4">
-          <button
-            type="button"
-            onClick={handleStartSession}
-            disabled={startSession.isPending || startFromTemplate.isPending}
-            className="w-full py-4 bg-primary text-white font-bold rounded-2xl hover:bg-primary-hover disabled:opacity-50 transition-colors text-lg shadow-md"
-            style={{ boxShadow: "0 4px 20px rgba(34, 197, 94, 0.3)" }}
-          >
-            {startSession.isPending ? "Starting..." : "🏋️ Start Workout"}
-          </button>
+        /* Idle: start options left, today's sessions right on laptop */
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5 lg:items-start">
+          <div className="space-y-4 lg:col-span-5">
+            <button
+              type="button"
+              onClick={handleStartSession}
+              disabled={startSession.isPending || startFromTemplate.isPending}
+              className="w-full py-4 bg-primary text-white font-bold rounded-2xl hover:bg-primary-hover disabled:opacity-50 transition-colors text-lg shadow-md"
+              style={{ boxShadow: "0 4px 20px rgba(34, 197, 94, 0.3)" }}
+            >
+              {startSession.isPending ? "Starting..." : "🏋️ Start Workout"}
+            </button>
 
-          <TemplateList
-            onStart={handleStartFromTemplate}
-            starting={startFromTemplate.isPending}
-          />
+            <TemplateList
+              onStart={handleStartFromTemplate}
+              starting={startFromTemplate.isPending}
+            />
+          </div>
+
+          <div className="space-y-3 lg:col-span-7">
+            {isLoading && (
+              <div className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-32" />
+            )}
+            {sessionsList}
+            {!isLoading && completedSessions.length === 0 && (
+              <div className="bg-surface rounded-2xl border border-border p-6 lg:p-8 text-center">
+                <p className="text-sm text-text-muted">
+                  No sessions logged for this day yet.
+                </p>
+                <p className="text-xs text-text-muted mt-1">
+                  Start a workout or pick a template to begin.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Loading */}
-      {isLoading && (
-        <div className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-32" />
-      )}
-
-      {/* Completed Sessions */}
-      {completedSessions.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
-            Today&apos;s Sessions
-          </h2>
-          {completedSessions.map((session: {
-            id: string;
-            durationMin?: number;
-            caloriesBurnedLow?: number;
-            caloriesBurnedHigh?: number;
-            status: string;
-            exerciseSets: Array<{
-              id: string;
-              setNumber: number;
-              weight?: number;
-              reps?: number;
-              rpe?: number;
-              isWarmup: boolean;
-              exercise: { name: string; muscleGroup: string };
-            }>;
-          }) => (
-            <SessionSummary key={session.id} session={session} />
-          ))}
-        </div>
+      {/* Completed sessions while mid-session still useful below on phone */}
+      {activeSessionId && sessionsList && (
+        <div className="lg:mt-2">{sessionsList}</div>
       )}
 
       {/* Exercise Browser Modal */}

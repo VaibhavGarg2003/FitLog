@@ -137,8 +137,22 @@
  *
  * These apply to ALL elements by default.
  * antialiased = smoother font rendering on macOS/Linux.
+ *
+ * FULL VIEWPORT SHELL:
+ * html/body always span 100% of the window. The app background
+ * is never a floating max-width box — only inner content may
+ * use layout grids; the chrome fills the screen.
  */
+html {
+  width: 100%;
+  height: 100%;
+}
+
 body {
+  width: 100%;
+  min-height: 100%;
+  min-height: 100dvh;
+  margin: 0;
   font-family: var(--font-inter), system-ui, sans-serif;
   background-color: var(--color-background);
   color: var(--color-text-primary);

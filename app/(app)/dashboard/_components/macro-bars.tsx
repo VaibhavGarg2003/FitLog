@@ -38,7 +38,7 @@ const MACROS = [
 
 export function MacroBars({ consumed, targets }: MacroBarsProps) {
   return (
-    <div className="bg-surface rounded-2xl p-5 border border-border space-y-4">
+    <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-4 lg:space-y-5 h-full">
       <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
         Macros
       </h3>
