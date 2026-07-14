@@ -35,6 +35,15 @@ export default function SignupPage() {
         data: { name },
         // `data` is stored in Supabase's auth.users.raw_user_meta_data.
         // We can read it later to pre-fill the user's name.
+
+        // Where the confirmation email link lands AFTER Supabase verifies the
+        // email. Without this it falls back to the project Site URL (the
+        // marketing landing page) with no message. Routing to /confirmed shows
+        // a clear "you're confirmed, log in" screen — and works cross-device
+        // (sign up on laptop, confirm on phone).
+        // NOTE: this URL must be in Supabase → Auth → URL Configuration →
+        // Redirect URLs, otherwise Supabase ignores it and uses the Site URL.
+        emailRedirectTo: `${window.location.origin}/confirmed`,
       },
     });
 

@@ -1,33 +1,27 @@
 "use client";
 
 /**
- * Step 4 — Goal Selection (Redesigned in Step 3)
- * ═══════════════════════════════════════════════
+ * Step 4 — Goal Selection
+ * ═══════════════════════
  *
- * BEFORE (Step 2):
- *   4 static buttons: Lose Fat / Gain Muscle / Maintain / Recomp
- *   Each mapped to a fixed calorie adjustment forever.
- *   RECOMP at -200 kcal/day takes 55+ weeks for 10kg loss — misleading.
+ * 1. User selects a body goal mode in plain language
+ * 2. If losing/gaining → enters target weight
+ * 3. Selects timeline via a slider (1-12 months)
+ * 4. Live preview shows estimated weekly change and calorie target
+ * 5. Safety warnings shown if timeline is too aggressive
  *
- * AFTER (Step 3):
- *   1. User selects a body goal mode in plain language
- *   2. If losing/gaining → enters target weight
- *   3. Selects timeline via a slider (1-12 months)
- *   4. Live preview shows estimated weekly change and calorie target
- *   5. Safety warnings shown if timeline is too aggressive
- *
- * The engine maps body goal modes to FitnessGoal enums internally:
- *   "Lean Cut" → LOSE_FAT
- *   "Lean Muscle" → RECOMP (deficit + muscle preservation)
- *   "Six Pack" → LOSE_FAT (aggressive)
- *   "Muscle Bulk" → GAIN_MUSCLE
- *   "Maintain" → MAINTAIN
+ * LAYOUT (laptop): goal cards in a 2-column grid; target/timeline/preview
+ * in a denser full-width panel so the wide shell feels complete.
  */
 
 import { useState, useMemo } from "react";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { cn } from "@/lib/utils/cn";
-import { calculateBMR, calculateTDEE, calculateGoalFromTimeline } from "@/lib/engine";
+import {
+  calculateBMR,
+  calculateTDEE,
+  calculateGoalFromTimeline,
+} from "@/lib/engine";
 
 // ── Body Goal Modes (plain language, no jargon) ─────────
 const BODY_GOALS = [
@@ -77,16 +71,13 @@ export function Step4Goal() {
   const { formData, updateFormData, nextStep, prevStep } =
     useOnboardingStore();
 
-  const [selectedMode, setSelectedMode] = useState<string>(
-    () => {
-      // Try to restore selection from formData
-      if (formData.goal === "MAINTAIN") return "maintain";
-      if (formData.goal === "GAIN_MUSCLE") return "bulk";
-      if (formData.goal === "RECOMP") return "lean-muscle";
-      if (formData.goal === "LOSE_FAT") return "lean-cut";
-      return "";
-    }
-  );
+  const [selectedMode, setSelectedMode] = useState<string>(() => {
+    if (formData.goal === "MAINTAIN") return "maintain";
+    if (formData.goal === "GAIN_MUSCLE") return "bulk";
+    if (formData.goal === "RECOMP") return "lean-muscle";
+    if (formData.goal === "LOSE_FAT") return "lean-cut";
+    return "";
+  });
   const [targetWeight, setTargetWeight] = useState<string>(
     () => formData.targetWeightKg?.toString() ?? ""
   );
@@ -99,12 +90,10 @@ export function Step4Goal() {
   const needsTarget = selectedMode !== "maintain" && selectedMode !== "";
   const targetWeightNum = parseFloat(targetWeight) || 0;
 
-  // ── Live preview using the real engine ────────────────
   const preview = useMemo(() => {
     if (!selectedGoalObj || !needsTarget || !targetWeightNum) return null;
     if (selectedMode === "maintain") return null;
 
-    // We need BMR + TDEE to run the timeline calculator
     const sex = formData.sex ?? "MALE";
     const heightCm = formData.heightCm ?? 170;
     const dobStr = formData.dateOfBirth;
@@ -121,7 +110,7 @@ export function Step4Goal() {
     const bmr = calculateBMR(sex, currentWeight, heightCm, age);
     const tdee = calculateTDEE(bmr, activityLevel);
 
-    const result = calculateGoalFromTimeline({
+    return calculateGoalFromTimeline({
       currentWeightKg: currentWeight,
       targetWeightKg: targetWeightNum,
       timelineDays: timeline * 30,
@@ -129,9 +118,15 @@ export function Step4Goal() {
       tdee,
       sex,
     });
-
-    return result;
-  }, [selectedGoalObj, targetWeightNum, timeline, currentWeight, formData, selectedMode, needsTarget]);
+  }, [
+    selectedGoalObj,
+    targetWeightNum,
+    timeline,
+    currentWeight,
+    formData,
+    selectedMode,
+    needsTarget,
+  ]);
 
   function handleModeSelect(modeId: string) {
     setSelectedMode(modeId);
@@ -163,17 +158,18 @@ export function Step4Goal() {
 
   const canContinue =
     selectedMode !== "" &&
-    (!needsTarget || (targetWeightNum > 0 && targetWeightNum !== currentWeight));
+    (!needsTarget ||
+      (targetWeightNum > 0 && targetWeightNum !== currentWeight));
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-text-muted mb-2">
+    <div className="space-y-5 lg:space-y-6">
+      <p className="text-sm text-text-muted">
         Choose how you want to transform your body. We will calculate your
         exact calorie and macro targets based on your choice.
       </p>
 
-      {/* ── Body Goal Cards ── */}
-      <div className="space-y-2">
+      {/* Goal cards — 2 columns on laptop */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:gap-4">
         {BODY_GOALS.map((mode) => (
           <button
             key={mode.id}
@@ -181,16 +177,17 @@ export function Step4Goal() {
             id={`onboarding-goal-${mode.id}`}
             onClick={() => handleModeSelect(mode.id)}
             className={cn(
-              "w-full p-4 rounded-xl border-2 text-left transition-all duration-200",
+              "w-full p-4 lg:p-5 rounded-xl border-2 text-left transition-all duration-200",
+              mode.id === "maintain" && "sm:col-span-2",
               selectedMode === mode.id
                 ? "border-primary bg-primary/10"
-                : "border-border bg-surface hover:border-text-muted"
+                : "border-border bg-background hover:border-text-muted"
             )}
           >
             <div className="flex items-start gap-3">
               <span className="text-2xl mt-0.5">{mode.emoji}</span>
-              <div className="flex-1">
-                <div className="flex items-center justify-between">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <p
                     className={cn(
                       "font-semibold",
@@ -201,7 +198,7 @@ export function Step4Goal() {
                   >
                     {mode.title}
                   </p>
-                  <span className="text-xs text-text-muted bg-surface-hover px-2 py-0.5 rounded-full">
+                  <span className="text-xs text-text-muted bg-surface-hover px-2 py-0.5 rounded-full shrink-0">
                     {mode.deficitRange}
                   </span>
                 </div>
@@ -214,64 +211,66 @@ export function Step4Goal() {
         ))}
       </div>
 
-      {/* ── Target Weight + Timeline (shown if not Maintain) ── */}
+      {/* Target Weight + Timeline */}
       {needsTarget && (
-        <div className="space-y-4 pt-2 border-t border-border">
-          {/* Target Weight Input */}
-          <div>
-            <label
-              htmlFor="target-weight"
-              className="block text-sm font-medium text-text-secondary mb-1"
-            >
-              Target Weight (kg)
-            </label>
-            <input
-              id="target-weight"
-              type="number"
-              inputMode="decimal"
-              value={targetWeight}
-              onChange={(e) => setTargetWeight(e.target.value)}
-              placeholder={
-                selectedGoalObj?.goal === "GAIN_MUSCLE"
-                  ? `e.g., ${currentWeight + 5}`
-                  : `e.g., ${Math.max(40, currentWeight - 10)}`
-              }
-              className="w-full p-3 bg-surface border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none transition-colors"
-            />
-            <p className="text-xs text-text-muted mt-1">
-              Current weight: {currentWeight} kg
-            </p>
-          </div>
+        <div className="space-y-4 pt-4 border-t border-border">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-6">
+            <div>
+              <label
+                htmlFor="target-weight"
+                className="block text-sm font-medium text-text-secondary mb-1"
+              >
+                Target Weight (kg)
+              </label>
+              <input
+                id="target-weight"
+                type="number"
+                inputMode="decimal"
+                value={targetWeight}
+                onChange={(e) => setTargetWeight(e.target.value)}
+                placeholder={
+                  selectedGoalObj?.goal === "GAIN_MUSCLE"
+                    ? `e.g., ${currentWeight + 5}`
+                    : `e.g., ${Math.max(40, currentWeight - 10)}`
+                }
+                className="w-full p-3 bg-background border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none transition-colors"
+              />
+              <p className="text-xs text-text-muted mt-1">
+                Current weight: {currentWeight} kg
+              </p>
+            </div>
 
-          {/* Timeline Slider */}
-          <div>
-            <label
-              htmlFor="timeline-slider"
-              className="block text-sm font-medium text-text-secondary mb-1"
-            >
-              Timeline: <span className="text-primary font-bold">{timeline} {timeline === 1 ? "month" : "months"}</span>
-            </label>
-            <input
-              id="timeline-slider"
-              type="range"
-              min={1}
-              max={12}
-              value={timeline}
-              onChange={(e) => setTimeline(parseInt(e.target.value))}
-              className="w-full accent-primary"
-            />
-            <div className="flex justify-between text-xs text-text-muted">
-              <span>1 month</span>
-              <span>6 months</span>
-              <span>12 months</span>
+            <div>
+              <label
+                htmlFor="timeline-slider"
+                className="block text-sm font-medium text-text-secondary mb-1"
+              >
+                Timeline:{" "}
+                <span className="text-primary font-bold">
+                  {timeline} {timeline === 1 ? "month" : "months"}
+                </span>
+              </label>
+              <input
+                id="timeline-slider"
+                type="range"
+                min={1}
+                max={12}
+                value={timeline}
+                onChange={(e) => setTimeline(parseInt(e.target.value))}
+                className="w-full accent-primary mt-3"
+              />
+              <div className="flex justify-between text-xs text-text-muted mt-1">
+                <span>1 month</span>
+                <span>6 months</span>
+                <span>12 months</span>
+              </div>
             </div>
           </div>
 
-          {/* ── Live Preview from Engine ── */}
           {preview && targetWeightNum > 0 && (
             <div
               className={cn(
-                "p-4 rounded-xl border",
+                "p-4 lg:p-5 rounded-xl border",
                 preview.isSafe
                   ? "bg-primary/5 border-primary/30"
                   : "bg-danger/5 border-danger/30"
@@ -282,25 +281,31 @@ export function Step4Goal() {
                   <p className="text-sm font-semibold text-primary">
                     ✅ Your Plan
                   </p>
-                  <div className="mt-2 space-y-1 text-sm text-text-secondary">
-                    <p>
-                      Daily calories:{" "}
-                      <span className="font-bold text-text-primary">
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm text-text-secondary">
+                    <div className="rounded-lg bg-background/50 border border-border/60 p-3">
+                      <p className="text-xs text-text-muted mb-0.5">
+                        Daily calories
+                      </p>
+                      <p className="font-bold text-text-primary">
                         {preview.targetCalories.toLocaleString()} kcal
-                      </span>
-                    </p>
-                    <p>
-                      Expected change:{" "}
-                      <span className="font-bold text-text-primary">
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-background/50 border border-border/60 p-3">
+                      <p className="text-xs text-text-muted mb-0.5">
+                        Expected change
+                      </p>
+                      <p className="font-bold text-text-primary">
                         {preview.weeklyChangeKg.toFixed(2)} kg/week
-                      </span>
-                    </p>
-                    <p>
-                      Reach your goal in:{" "}
-                      <span className="font-bold text-text-primary">
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-background/50 border border-border/60 p-3">
+                      <p className="text-xs text-text-muted mb-0.5">
+                        Reach goal in
+                      </p>
+                      <p className="font-bold text-text-primary">
                         ~{Math.round(preview.estimatedWeeks)} weeks
-                      </span>
-                    </p>
+                      </p>
+                    </div>
                   </div>
                 </>
               ) : (
@@ -321,12 +326,11 @@ export function Step4Goal() {
         </div>
       )}
 
-      {/* ── Navigation ── */}
-      <div className="flex gap-3 pt-2">
+      <div className="flex flex-col-reverse sm:flex-row gap-3 sm:justify-end pt-1">
         <button
           type="button"
           onClick={prevStep}
-          className="flex-1 py-3 px-6 bg-surface border border-border text-text-secondary font-semibold rounded-xl hover:bg-surface-hover transition-colors"
+          className="sm:min-w-[8rem] py-3 px-6 bg-background border border-border text-text-secondary font-semibold rounded-xl hover:bg-surface-hover transition-colors"
         >
           Back
         </button>
@@ -335,10 +339,10 @@ export function Step4Goal() {
           onClick={handleNext}
           disabled={!canContinue}
           className={cn(
-            "flex-1 py-3 px-6 font-semibold rounded-xl transition-colors",
+            "sm:min-w-[12rem] py-3 px-6 font-semibold rounded-xl transition-colors",
             canContinue
               ? "bg-primary text-white hover:bg-primary-hover"
-              : "bg-surface-hover text-text-muted cursor-not-allowed"
+              : "bg-border text-text-muted cursor-not-allowed"
           )}
         >
           Continue

@@ -42,13 +42,13 @@ export function Step5Preferences({ onSubmit, isSubmitting }: Step5Props) {
   const canSubmit = !!formData.dietaryType;
 
   return (
-    <div className="space-y-6">
-      {/* Dietary Type */}
+    <div className="space-y-6 lg:space-y-8">
+      {/* Dietary Type — 2×2 phone, 4-up laptop */}
       <div>
         <label className="block text-sm font-medium text-text-secondary mb-3">
           Dietary Preference
         </label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
           {DIETARY_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -56,13 +56,13 @@ export function Step5Preferences({ onSubmit, isSubmitting }: Step5Props) {
               id={`onboarding-diet-${opt.value.toLowerCase().replace("_", "-")}`}
               onClick={() => updateFormData({ dietaryType: opt.value })}
               className={cn(
-                "p-3 rounded-xl border-2 text-center transition-all duration-200",
+                "p-3 lg:p-5 rounded-xl border-2 text-center transition-all duration-200",
                 formData.dietaryType === opt.value
                   ? "border-primary bg-primary/10"
-                  : "border-border bg-surface hover:border-text-muted"
+                  : "border-border bg-background hover:border-text-muted"
               )}
             >
-              <span className="text-xl block mb-1">{opt.emoji}</span>
+              <span className="text-xl lg:text-2xl block mb-1">{opt.emoji}</span>
               <span
                 className={cn(
                   "text-sm font-medium",
@@ -78,12 +78,12 @@ export function Step5Preferences({ onSubmit, isSubmitting }: Step5Props) {
         </div>
       </div>
 
-      {/* Strictness */}
+      {/* Strictness — 3 columns on laptop */}
       <div>
         <label className="block text-sm font-medium text-text-secondary mb-3">
           Feedback Style
         </label>
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
           {STRICTNESS_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -91,10 +91,10 @@ export function Step5Preferences({ onSubmit, isSubmitting }: Step5Props) {
               id={`onboarding-strictness-${opt.value.toLowerCase()}`}
               onClick={() => updateFormData({ strictness: opt.value })}
               className={cn(
-                "w-full p-3 rounded-xl border-2 text-left transition-all duration-200 flex items-center gap-3",
+                "w-full p-3 lg:p-4 rounded-xl border-2 text-left transition-all duration-200 flex sm:flex-col items-center sm:items-start gap-3",
                 formData.strictness === opt.value
                   ? "border-primary bg-primary/10"
-                  : "border-border bg-surface hover:border-text-muted"
+                  : "border-border bg-background hover:border-text-muted"
               )}
             >
               <span className="text-xl">{opt.emoji}</span>
@@ -109,20 +109,21 @@ export function Step5Preferences({ onSubmit, isSubmitting }: Step5Props) {
                 >
                   {opt.title}
                 </p>
-                <p className="text-xs text-text-muted">{opt.description}</p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  {opt.description}
+                </p>
               </div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Navigation */}
-      <div className="flex gap-3 pt-2">
+      <div className="flex flex-col-reverse sm:flex-row gap-3 sm:justify-end pt-1">
         <button
           type="button"
           onClick={prevStep}
           disabled={isSubmitting}
-          className="flex-1 py-3 px-6 bg-surface border border-border text-text-secondary font-semibold rounded-xl hover:bg-surface-alt transition-colors disabled:opacity-50"
+          className="sm:min-w-[8rem] py-3 px-6 bg-background border border-border text-text-secondary font-semibold rounded-xl hover:bg-surface-hover transition-colors disabled:opacity-50"
         >
           Back
         </button>
@@ -131,10 +132,10 @@ export function Step5Preferences({ onSubmit, isSubmitting }: Step5Props) {
           onClick={onSubmit}
           disabled={!canSubmit || isSubmitting}
           className={cn(
-            "flex-1 py-3 px-6 font-semibold rounded-xl transition-all duration-200",
+            "sm:min-w-[12rem] py-3 px-6 font-semibold rounded-xl transition-all duration-200",
             canSubmit && !isSubmitting
               ? "bg-gradient-to-r from-primary to-accent text-white hover:opacity-90"
-              : "bg-surface-alt text-text-muted cursor-not-allowed"
+              : "bg-border text-text-muted cursor-not-allowed"
           )}
         >
           {isSubmitting ? (

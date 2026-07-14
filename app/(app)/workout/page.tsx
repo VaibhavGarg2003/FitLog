@@ -51,6 +51,13 @@ export default function WorkoutPage() {
 
   const [showBrowser, setShowBrowser] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // The date the active session belongs to. The whole session flow (start →
+  // add exercises → finish, plus the completion card) must only show on THIS
+  // date. Switching the DateStrip to another day should show that day's own
+  // state — not make it look like a workout is already in progress there.
+  const [activeSessionDate, setActiveSessionDate] = useState<string | null>(
+    null
+  );
   const [activeExercise, setActiveExercise] = useState<{
     id: string;
     name: string;
@@ -93,6 +100,7 @@ export default function WorkoutPage() {
         mode: "RECALL",
       });
       setActiveSessionId(session.id);
+      setActiveSessionDate(selectedDate);
       setTotalSetsInSession(0);
       setWorkoutCompleted(null);
       setPlannedExercises(null);
@@ -106,6 +114,7 @@ export default function WorkoutPage() {
     try {
       const result = await startFromTemplate.mutateAsync(template.id);
       setActiveSessionId(result.session.id);
+      setActiveSessionDate(selectedDate);
       setTotalSetsInSession(0);
       setWorkoutCompleted(null);
       setPlannedExercises(result.exercises);
@@ -148,6 +157,22 @@ export default function WorkoutPage() {
     }
     setFinishError(null);
     setShowFinish(true);
+  }
+
+  // Back out of a session the user doesn't want to continue. Clears the local
+  // wizard state and returns to the start screen. (The empty in-progress
+  // session stays in the DB but is invisible — only COMPLETED sessions are
+  // listed. A dedicated cancel/delete endpoint is a possible follow-up.)
+  function handleCancelSession() {
+    setActiveSessionId(null);
+    setActiveSessionDate(null);
+    setActiveExercise(null);
+    setSetsLogged(0);
+    setTotalSetsInSession(0);
+    setShowFinish(false);
+    setFinishError(null);
+    setPlannedExercises(null);
+    setDoneExerciseIds(new Set());
   }
 
   async function handleFinish() {
@@ -196,6 +221,12 @@ export default function WorkoutPage() {
   const completedSessions = sessions?.filter(
     (s: { status: string }) => s.status === "COMPLETED"
   ) ?? [];
+
+  // The in-progress session (and the just-finished completion card) belong only
+  // to the date the session was started on. On any other day, show that day's
+  // own state instead — otherwise a session started on the 14th makes every
+  // other date look like a workout is already in progress.
+  const onSessionDate = activeSessionDate === selectedDate;
 
   const plannedChecklist =
     plannedExercises && plannedExercises.length > 0 ? (
@@ -319,8 +350,20 @@ export default function WorkoutPage() {
       <DateStrip />
 
       {/* Active Session — split logger | checklist on laptop */}
-      {activeSessionId ? (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5 lg:items-start">
+      {activeSessionId && onSessionDate ? (
+        <div className="space-y-4 lg:space-y-5">
+          {/* Back out of a session you didn't mean to start (initial stage only —
+              the logger and finish screens have their own Done/Back controls). */}
+          {!activeExercise && !showFinish && (
+            <button
+              type="button"
+              onClick={handleCancelSession}
+              className="text-sm text-text-secondary hover:text-text-primary transition-colors"
+            >
+              ← Cancel workout
+            </button>
+          )}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5 lg:items-start">
           <div className="space-y-4 lg:col-span-7">
             {activeExercise ? (
               <SetLogger
@@ -449,7 +492,8 @@ export default function WorkoutPage() {
             )}
           </div>
         </div>
-      ) : workoutCompleted ? (
+        </div>
+      ) : workoutCompleted && onSessionDate ? (
         /* Completion card — readable width, centered in the shell */
         <div className="max-w-lg mx-auto">
           <div

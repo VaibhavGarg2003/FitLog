@@ -31,61 +31,62 @@ export function Step1Identity() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Name */}
-      <div>
-        <label className="block text-sm font-medium text-text-secondary mb-2">
-          What should we call you?
-        </label>
-        <input
-          id="onboarding-name"
-          type="text"
-          placeholder="Your name"
-          value={formData.name || ""}
-          onChange={(e) => updateFormData({ name: e.target.value })}
-          className={cn(
-            "w-full px-4 py-3 bg-surface border rounded-xl text-text-primary placeholder:text-text-muted",
-            "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary",
-            "transition-all",
-            errors.name ? "border-red-500" : "border-border"
+    <div className="space-y-6 lg:space-y-8">
+      {/* Name + DOB side-by-side on laptop */}
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-2">
+            What should we call you?
+          </label>
+          <input
+            id="onboarding-name"
+            type="text"
+            placeholder="Your name"
+            value={formData.name || ""}
+            onChange={(e) => updateFormData({ name: e.target.value })}
+            className={cn(
+              "w-full px-4 py-3 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",
+              "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary",
+              "transition-all",
+              errors.name ? "border-red-500" : "border-border"
+            )}
+          />
+          {errors.name && (
+            <p className="mt-1 text-sm text-red-400">{errors.name}</p>
           )}
-        />
-        {errors.name && (
-          <p className="mt-1 text-sm text-red-400">{errors.name}</p>
-        )}
-      </div>
+        </div>
 
-      {/* Date of Birth */}
-      <div>
-        <label className="block text-sm font-medium text-text-secondary mb-2">
-          Date of Birth
-        </label>
-        <input
-          id="onboarding-dob"
-          type="date"
-          value={formData.dateOfBirth || ""}
-          onChange={(e) => updateFormData({ dateOfBirth: e.target.value })}
-          className={cn(
-            "w-full px-4 py-3 bg-surface border rounded-xl text-text-primary",
-            "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary",
-            "transition-all [color-scheme:dark]",
-            errors.dateOfBirth ? "border-red-500" : "border-border"
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-2">
+            Date of Birth
+          </label>
+          <input
+            id="onboarding-dob"
+            type="date"
+            value={formData.dateOfBirth || ""}
+            onChange={(e) => updateFormData({ dateOfBirth: e.target.value })}
+            className={cn(
+              "w-full px-4 py-3 bg-background border rounded-xl text-text-primary",
+              "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary",
+              "transition-all [color-scheme:dark]",
+              errors.dateOfBirth ? "border-red-500" : "border-border"
+            )}
+          />
+          {errors.dateOfBirth && (
+            <p className="mt-1 text-sm text-red-400">{errors.dateOfBirth}</p>
           )}
-        />
-        {errors.dateOfBirth && (
-          <p className="mt-1 text-sm text-red-400">{errors.dateOfBirth}</p>
-        )}
+        </div>
       </div>
 
       {/* Biological Sex */}
       <div>
-        <label className="block text-sm font-medium text-text-secondary mb-3">
+        <label className="block text-sm font-medium text-text-secondary mb-2">
           Biological Sex
         </label>
         <p className="text-xs text-text-muted mb-3">
           Used for accurate BMR calculation. This affects calorie targets.
         </p>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:gap-4">
           {(["MALE", "FEMALE"] as const).map((sex) => (
             <button
               key={sex}
@@ -93,13 +94,13 @@ export function Step1Identity() {
               id={`onboarding-sex-${sex.toLowerCase()}`}
               onClick={() => updateFormData({ sex })}
               className={cn(
-                "p-4 rounded-xl border-2 text-center font-medium transition-all duration-200",
+                "p-4 lg:p-6 rounded-xl border-2 text-center font-medium transition-all duration-200",
                 formData.sex === sex
                   ? "border-primary bg-primary/10 text-primary"
-                  : "border-border bg-surface text-text-secondary hover:border-text-muted"
+                  : "border-border bg-background text-text-secondary hover:border-text-muted"
               )}
             >
-              <span className="text-2xl block mb-1">
+              <span className="text-2xl lg:text-3xl block mb-1">
                 {sex === "MALE" ? "♂" : "♀"}
               </span>
               {sex === "MALE" ? "Male" : "Female"}
@@ -111,11 +112,10 @@ export function Step1Identity() {
         )}
       </div>
 
-      {/* Next Button */}
       <button
         type="button"
         onClick={handleNext}
-        className="w-full py-3 px-6 bg-primary text-white font-semibold rounded-xl hover:bg-primary/90 transition-colors"
+        className="w-full sm:w-auto sm:min-w-[12rem] sm:ml-auto sm:flex py-3 px-8 bg-primary text-white font-semibold rounded-xl hover:bg-primary/90 transition-colors"
       >
         Continue
       </button>
