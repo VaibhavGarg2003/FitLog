@@ -1,19 +1,19 @@
 /**
  * Signup Page
  * ═══════════
- * Very similar to login. Uses supabase.auth.signUp() instead of signInWithPassword().
- * After signup, Supabase sends a confirmation email (if configured).
+ * Server-side signup via /api/auth/signup — tokens never returned to the browser.
  */
 "use client";
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Dumbbell, Mail, Lock, User, Globe } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { APP_NAME } from "@/lib/utils/constants";
 import { cn } from "@/lib/utils/cn";
 
 export default function SignupPage() {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,58 +21,50 @@ export default function SignupPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const supabase = createClient();
-
   async function handleEmailSignup(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { name },
-        // `data` is stored in Supabase's auth.users.raw_user_meta_data.
-        // We can read it later to pre-fill the user's name.
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password }),
+      });
 
-        // Where the confirmation email link lands AFTER Supabase verifies the
-        // email. Without this it falls back to the project Site URL (the
-        // marketing landing page) with no message. Routing to /confirmed shows
-        // a clear "you're confirmed, log in" screen — and works cross-device
-        // (sign up on laptop, confirm on phone).
-        // NOTE: this URL must be in Supabase → Auth → URL Configuration →
-        // Redirect URLs, otherwise Supabase ignores it and uses the Site URL.
-        emailRedirectTo: `${window.location.origin}/confirmed`,
-      },
-    });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        needsConfirmation?: boolean;
+      };
 
-    if (error) {
-      setError(error.message);
+      if (!res.ok) {
+        setError(data.error ?? "Could not create account");
+        setLoading(false);
+        return;
+      }
+
+      // Auto-confirm projects get a session cookie immediately → onboarding
+      if (data.needsConfirmation === false) {
+        router.push("/onboarding");
+        router.refresh();
+        return;
+      }
+
+      setSuccess(true);
       setLoading(false);
-      return;
+    } catch {
+      setError("Something went wrong. Please try again.");
+      setLoading(false);
     }
-
-    setSuccess(true);
-    setLoading(false);
-    // In production with email confirmation enabled,
-    // user must click the link in their email before they can log in.
-    // We show a success message instead of redirecting.
   }
 
-  async function handleGoogleSignup() {
+  function handleGoogleSignup() {
     setLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?redirect=/onboarding`,
-        // New users go to onboarding after Google signup.
-      },
-    });
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-    }
+    // New users go to onboarding after Google signup (via callback redirect).
+    window.location.href =
+      "/api/auth/oauth?provider=google&redirect=" +
+      encodeURIComponent("/onboarding");
   }
 
   if (success) {
@@ -102,6 +94,7 @@ export default function SignupPage() {
       </div>
 
       <button
+        type="button"
         onClick={handleGoogleSignup}
         disabled={loading}
         className={cn(
@@ -135,6 +128,7 @@ export default function SignupPage() {
               onChange={(e) => setName(e.target.value)}
               placeholder="Your name"
               required
+              autoComplete="name"
               className={cn(
                 "w-full pl-10 pr-4 py-3 rounded-lg",
                 "bg-surface border border-border",
@@ -156,6 +150,7 @@ export default function SignupPage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
+              autoComplete="email"
               className={cn(
                 "w-full pl-10 pr-4 py-3 rounded-lg",
                 "bg-surface border border-border",
@@ -178,6 +173,7 @@ export default function SignupPage() {
               placeholder="Min 6 characters"
               required
               minLength={6}
+              autoComplete="new-password"
               className={cn(
                 "w-full pl-10 pr-4 py-3 rounded-lg",
                 "bg-surface border border-border",

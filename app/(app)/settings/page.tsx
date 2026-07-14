@@ -25,7 +25,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProfile } from "@/lib/hooks/use-profile";
 import { useQueryClient } from "@tanstack/react-query";
-import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
 const ACTIVITY_OPTIONS = [
@@ -58,11 +57,16 @@ export default function SettingsPage() {
 
   async function handleSignOut() {
     setSigningOut(true);
-    const supabase = createClient();
-    await supabase.auth.signOut();
+    try {
+      // Server clears httpOnly session cookies — no browser token access
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Still clear client state and leave the app even if the request fails
+    }
     // Clear all cached query data so next user gets a clean slate
     queryClient.clear();
     router.push("/login");
+    router.refresh();
   }
 
   const [weight, setWeight] = useState("");

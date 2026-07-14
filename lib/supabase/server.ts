@@ -22,6 +22,7 @@
  */
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { AUTH_COOKIE_OPTIONS } from "@/lib/supabase/cookie-options";
 
 export async function createClient() {
   // cookies() is async in Next.js 15+ (it was sync before).
@@ -32,6 +33,8 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // httpOnly session cookies — never readable by browser JS / XSS
+      cookieOptions: AUTH_COOKIE_OPTIONS,
       cookies: {
         // GET a cookie by name — Supabase reads the session token
         getAll() {
@@ -42,7 +45,10 @@ export async function createClient() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
+              cookieStore.set(name, value, {
+                ...options,
+                ...AUTH_COOKIE_OPTIONS,
+              })
             );
           } catch {
             // Silently fail if called from a Server Component

@@ -2,10 +2,9 @@
  * Login Form — Client Component
  * ═════════════════════════════
  *
- * "use client" — uses browser APIs (useState, useSearchParams, supabase.auth).
- *
- * This is separated from page.tsx because useSearchParams() needs
- * to be inside a Suspense boundary. The page.tsx provides that boundary.
+ * Auth goes through same-origin /api/auth/* (server). The browser never
+ * calls Supabase Auth directly, so access tokens do not appear in a
+ * client-visible JSON response body.
  */
 "use client";
 
@@ -13,7 +12,6 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Dumbbell, Mail, Lock, Globe } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { APP_NAME } from "@/lib/utils/constants";
 import { cn } from "@/lib/utils/cn";
 import { safeRedirectPath } from "@/lib/utils/safe-redirect";
@@ -27,7 +25,6 @@ export function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const supabase = createClient();
   // Sanitized — ?redirect=//evil.com must never survive a successful login
   const redirectTo = safeRedirectPath(searchParams.get("redirect"));
 
@@ -36,36 +33,35 @@ export function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
 
-    if (error) {
-      setError(error.message);
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+
+      if (!res.ok) {
+        setError(data.error ?? "Invalid email or password");
+        setLoading(false);
+        return;
+      }
+
+      // Session cookies are httpOnly — set by the API. Navigate into the app.
+      router.push(redirectTo);
+      router.refresh();
+    } catch {
+      setError("Something went wrong. Please try again.");
       setLoading(false);
-      return;
     }
-
-    router.push(redirectTo);
-    router.refresh();
   }
 
-  async function handleGoogleLogin() {
+  function handleGoogleLogin() {
     setLoading(true);
     setError(null);
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?redirect=${redirectTo}`,
-      },
-    });
-
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-    }
+    // Full navigation to server OAuth starter (sets nothing sensitive client-side)
+    window.location.href = `/api/auth/oauth?provider=google&redirect=${encodeURIComponent(redirectTo)}`;
   }
 
   return (
@@ -81,6 +77,7 @@ export function LoginForm() {
 
       {/* Google OAuth */}
       <button
+        type="button"
         onClick={handleGoogleLogin}
         disabled={loading}
         className={cn(
@@ -119,6 +116,7 @@ export function LoginForm() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
+              autoComplete="email"
               className={cn(
                 "w-full pl-10 pr-4 py-3 rounded-lg",
                 "bg-surface border border-border",
@@ -146,6 +144,7 @@ export function LoginForm() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
+              autoComplete="current-password"
               className={cn(
                 "w-full pl-10 pr-4 py-3 rounded-lg",
                 "bg-surface border border-border",

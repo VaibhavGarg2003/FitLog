@@ -37,7 +37,7 @@ const PROTECTED_ROUTES = [
 ];
 
 // Routes that logged-in users should NOT see (redirect to dashboard)
-const AUTH_ROUTES = ["/login", "/signup"];
+const AUTH_ROUTES = ["/login", "/signup", "/confirmed"];
 
 export async function proxy(request: NextRequest) {
   // Step 1: Refresh session tokens (prevents silent logout)
