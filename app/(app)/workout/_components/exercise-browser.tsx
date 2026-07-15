@@ -83,8 +83,9 @@ export function ExerciseBrowser({
           />
         </div>
 
-        {/* Muscle Group Chips */}
-        <div className="flex gap-2 overflow-x-auto p-3 border-b border-border">
+        {/* Muscle Group Chips — swipeable row on mobile (no visible scrollbar),
+            wraps to show every filter at once on laptop. */}
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide lg:flex-wrap lg:overflow-visible p-3 border-b border-border">
           {MUSCLE_GROUPS.map((group) => (
             <button
               key={group}

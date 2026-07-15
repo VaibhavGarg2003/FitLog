@@ -28,6 +28,12 @@ export function LoginForm() {
   // Sanitized — ?redirect=//evil.com must never survive a successful login
   const redirectTo = safeRedirectPath(searchParams.get("redirect"));
 
+  // Surface OAuth callback failures redirected here as ?error=...
+  const urlError =
+    searchParams.get("error") === "auth_failed"
+      ? "Google sign-in didn't complete. Please try again."
+      : null;
+
   async function handleEmailLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -156,10 +162,18 @@ export function LoginForm() {
           </div>
         </div>
 
-        {error && (
-          <p className="text-danger text-sm bg-danger/10 px-3 py-2 rounded-lg">
-            {error}
-          </p>
+        {(error || urlError) && (
+          <div className="text-danger text-sm bg-danger/10 px-3 py-2 rounded-lg space-y-1">
+            <p>{error ?? urlError}</p>
+            {/* Generic, non-enumerating hint: we never confirm whether the
+                email is Google-only, but we point the way if it is. */}
+            {error && (
+              <p className="text-text-muted text-xs">
+                Signed up with Google? Use{" "}
+                <span className="font-medium">Continue with Google</span> above.
+              </p>
+            )}
+          </div>
         )}
 
         <button

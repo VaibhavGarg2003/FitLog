@@ -185,6 +185,23 @@ body {
 }
 
 /*
+ * ─── scrollbar-hide utility ──────────────────────────
+ *
+ * Hides the scrollbar while KEEPING scroll/swipe. Used by horizontal
+ * strips (date selector, exercise muscle-group chips) where a visible
+ * scrollbar looks broken but touch/trackpad scrolling should still work.
+ * (This class was referenced by date-strip but never defined — so its
+ * scrollbar was still showing. Defining it here fixes both places.)
+ */
+.scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge/IE */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chromium / Safari */
+}
+
+/*
  * ─── Focus Styles ─────────────────────────────────────
  *
  * When users navigate with keyboard (Tab key), we show

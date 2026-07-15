@@ -31,6 +31,9 @@ export async function GET(request: Request) {
   // origin = "https://fitlog.vercel.app" (your domain)
 
   const code = searchParams.get("code");
+  // "link" = this callback is completing a "Connect Google" from Settings,
+  // not a login. It gets stricter handling (email must match) below.
+  const isLink = searchParams.get("flow") === "link";
   // Sanitized — an attacker-supplied ?redirect must stay on our origin
   const redirect = safeRedirectPath(searchParams.get("redirect"));
 
@@ -43,11 +46,44 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      // Success → redirect to the app
+      if (isLink) {
+        // CONNECT-GOOGLE: enforce the email-match rule ourselves. Supabase
+        // links by user id, so it would happily attach a DIFFERENT Google
+        // account. We compare the just-linked Google identity's email to the
+        // account email and UNLINK on mismatch — leaving the account exactly
+        // as it was (their existing session/data untouched).
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        const accountEmail = user?.email?.trim().toLowerCase();
+        const googleIdentity = user?.identities?.find(
+          (i) => i.provider === "google"
+        );
+        const googleEmail = (
+          googleIdentity?.identity_data?.email as string | undefined
+        )
+          ?.trim()
+          .toLowerCase();
+
+        if (googleIdentity && googleEmail && googleEmail !== accountEmail) {
+          // Wrong Google account — undo the link, change nothing else.
+          await supabase.auth.unlinkIdentity(googleIdentity).catch(() => {});
+          return NextResponse.redirect(
+            `${origin}/settings?error=google_email_mismatch`
+          );
+        }
+
+        return NextResponse.redirect(`${origin}/settings?linked=google`);
+      }
+
+      // Normal login/signup → into the app.
       return NextResponse.redirect(`${origin}${redirect}`);
     }
   }
 
-  // Something went wrong → redirect to login with error
+  // Something went wrong.
+  if (isLink) {
+    return NextResponse.redirect(`${origin}/settings?error=link_failed`);
+  }
   return NextResponse.redirect(`${origin}/login?error=auth_failed`);
 }

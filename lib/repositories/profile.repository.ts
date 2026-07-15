@@ -16,7 +16,7 @@
  */
 
 import { prisma } from "@/lib/supabase/prisma";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, FitnessGoal } from "@prisma/client";
 
 /**
  * Create a User + Profile in a single database transaction.
@@ -34,7 +34,20 @@ export async function createUserWithProfile(
     name: string | null;
     avatarUrl: string | null;
   },
-  profileData: Prisma.ProfileCreateWithoutUserInput
+  profileData: Prisma.ProfileCreateWithoutUserInput,
+  extras?: {
+    // A real weight goal (omitted when the user skips or picks Maintain).
+    goal?: {
+      type: FitnessGoal;
+      startValue: number;
+      targetValue: number;
+      startDate: Date;
+      targetDate: Date;
+    };
+    // Seed the onboarding-day weight so the Progress page has a starting point.
+    initialWeightKg?: number;
+    weightDate?: Date;
+  }
 ) {
   return prisma.$transaction(async (tx) => {
     // Upsert user (might already exist from a previous partial attempt)
@@ -65,6 +78,37 @@ export async function createUserWithProfile(
         isOnboarded: true,
       },
     });
+
+    // Seed the starting weight (idempotent per day) so start/current weight
+    // on the Progress page are populated from day one.
+    if (extras?.initialWeightKg != null) {
+      const date = extras.weightDate ?? new Date();
+      await tx.weightLog.upsert({
+        where: { userId_date: { userId: userData.id, date } },
+        update: { weightKg: extras.initialWeightKg },
+        create: { userId: userData.id, date, weightKg: extras.initialWeightKg },
+      });
+    }
+
+    // Create the active goal. Keep the "one ACTIVE goal per user" invariant by
+    // retiring any prior ACTIVE goal first (matters only on re-onboarding).
+    if (extras?.goal) {
+      await tx.goal.updateMany({
+        where: { userId: userData.id, status: "ACTIVE" },
+        data: { status: "ABANDONED" },
+      });
+      await tx.goal.create({
+        data: {
+          userId: userData.id,
+          type: extras.goal.type,
+          startValue: extras.goal.startValue,
+          targetValue: extras.goal.targetValue,
+          startDate: extras.goal.startDate,
+          targetDate: extras.goal.targetDate,
+          status: "ACTIVE",
+        },
+      });
+    }
 
     return { user, profile };
   });

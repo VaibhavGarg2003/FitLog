@@ -20,6 +20,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [accountExists, setAccountExists] = useState(false);
 
   async function handleEmailSignup(e: React.FormEvent) {
     e.preventDefault();
@@ -35,8 +36,17 @@ export default function SignupPage() {
 
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
+        code?: string;
         needsConfirmation?: boolean;
       };
+
+      // Email already registered (possibly via Google) — don't show the
+      // "check your email" dead end; guide them to log in / use Google.
+      if (data.code === "ACCOUNT_EXISTS") {
+        setAccountExists(true);
+        setLoading(false);
+        return;
+      }
 
       if (!res.ok) {
         setError(data.error ?? "Could not create account");
@@ -65,6 +75,33 @@ export default function SignupPage() {
     window.location.href =
       "/api/auth/oauth?provider=google&redirect=" +
       encodeURIComponent("/onboarding");
+  }
+
+  if (accountExists) {
+    return (
+      <div className="text-center space-y-4">
+        <div className="text-4xl">👋</div>
+        <h2 className="text-xl font-bold">You already have an account</h2>
+        <p className="text-text-secondary">
+          <strong>{email}</strong> is already registered. Log in instead — if you
+          first signed up with Google, use that button.
+        </p>
+        <button
+          type="button"
+          onClick={handleGoogleSignup}
+          className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-surface border border-border rounded-lg hover:bg-surface-hover transition-colors"
+        >
+          <Globe size={20} />
+          <span className="font-medium">Continue with Google</span>
+        </button>
+        <Link
+          href="/login"
+          className="block w-full py-3 rounded-lg font-semibold bg-primary text-background hover:bg-primary-hover transition-colors"
+        >
+          Go to login
+        </Link>
+      </div>
+    );
   }
 
   if (success) {

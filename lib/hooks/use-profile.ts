@@ -46,6 +46,16 @@ interface Profile {
     name: string | null;
     avatarUrl: string | null;
   };
+  // Active weight goal (null when the user skipped or picked Maintain).
+  activeGoal?: {
+    id: string;
+    type: string;
+    startValue: number;
+    targetValue: number;
+    startDate: string;
+    targetDate: string;
+    status: string;
+  } | null;
 }
 
 async function fetchProfile(): Promise<Profile> {

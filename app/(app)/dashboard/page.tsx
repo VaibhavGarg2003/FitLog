@@ -119,8 +119,10 @@ export default function DashboardPage() {
           <div className="lg:col-span-6">
             <GoalProgress
               currentWeight={profile?.weightKg ?? null}
-              targetWeight={null}
-              startWeight={profile?.weightKg ?? null}
+              targetWeight={profile?.activeGoal?.targetValue ?? null}
+              startWeight={
+                profile?.activeGoal?.startValue ?? profile?.weightKg ?? null
+              }
               goal={profile?.goal ?? null}
             />
           </div>

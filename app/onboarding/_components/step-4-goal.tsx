@@ -156,10 +156,22 @@ export function Step4Goal() {
     nextStep();
   }
 
+  // Skip the target weight: keep the chosen goal MODE (the engine needs it for
+  // calorie/protein targets) but clear any target so NO goal row is created.
+  // The dashboard then shows the goal type without a progress bar.
+  function handleSkipTarget() {
+    if (!selectedGoalObj) return;
+    updateFormData({ targetWeightKg: undefined, timelineMonths: undefined });
+    nextStep();
+  }
+
   const canContinue =
     selectedMode !== "" &&
     (!needsTarget ||
       (targetWeightNum > 0 && targetWeightNum !== currentWeight));
+
+  // Once a goal mode is chosen, the user may always skip setting a target.
+  const canSkipTarget = selectedMode !== "";
 
   return (
     <div className="space-y-5 lg:space-y-6">
@@ -348,6 +360,20 @@ export function Step4Goal() {
           Continue
         </button>
       </div>
+
+      {/* Skip target — only shown once a goal mode is picked and a target is
+          expected. Proceeds without creating a goal; user can set one later. */}
+      {canSkipTarget && needsTarget && (
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={handleSkipTarget}
+            className="text-sm text-text-muted hover:text-text-secondary underline underline-offset-2 transition-colors"
+          >
+            Skip — I&apos;ll set a target weight later
+          </button>
+        </div>
+      )}
     </div>
   );
 }

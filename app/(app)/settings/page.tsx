@@ -21,10 +21,12 @@
  *   → Dashboard loads new targets on next visit
  */
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { useProfile } from "@/lib/hooks/use-profile";
 import { useQueryClient } from "@tanstack/react-query";
+import { GoalCard } from "./_components/goal-card";
+import { SigninMethodsCard } from "./_components/signin-methods-card";
 import { cn } from "@/lib/utils/cn";
 
 const ACTIVITY_OPTIONS = [
@@ -171,6 +173,18 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+
+          {/* Weight goal — set / change / remove; drives Dashboard goal card */}
+          <GoalCard />
+
+          {/* Sign-in methods — connect Google / add password */}
+          <Suspense
+            fallback={
+              <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border h-40 animate-pulse" />
+            }
+          >
+            <SigninMethodsCard />
+          </Suspense>
 
           <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-3">
             <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">

@@ -53,6 +53,22 @@ export async function POST(request: Request) {
     );
   }
 
+  // DUPLICATE-EMAIL TRAP: with Supabase's email-enumeration protection ON
+  // (the default), signUp() for an already-registered email returns NO error
+  // and a decoy user whose `identities` array is EMPTY — and no real email is
+  // sent. Without this check the UI would show "Check your email" forever.
+  // An empty identities array is the documented signal for "already exists".
+  if (data.user && (data.user.identities?.length ?? 0) === 0) {
+    return NextResponse.json(
+      {
+        code: "ACCOUNT_EXISTS",
+        error:
+          "An account with this email already exists. Log in instead — if you signed up with Google, use Continue with Google.",
+      },
+      { status: 409 }
+    );
+  }
+
   // If email confirmation is required, session is null and cookies stay empty.
   // If auto-confirm is on, session cookies are set httpOnly on this response.
   return NextResponse.json({

@@ -104,3 +104,41 @@ export async function getActiveGoal(userId: string) {
     },
   });
 }
+
+/**
+ * Set (create or replace) the user's active weight goal.
+ * Any existing ACTIVE goal is retired to ABANDONED first, so a user always
+ * has at most ONE active goal. Used by the Settings goal card.
+ */
+export async function setActiveGoal(
+  userId: string,
+  data: {
+    type: "LOSE_FAT" | "GAIN_MUSCLE" | "MAINTAIN" | "RECOMP";
+    startValue: number;
+    targetValue: number;
+    startDate: Date;
+    targetDate: Date;
+  }
+) {
+  return prisma.$transaction(async (tx) => {
+    await tx.goal.updateMany({
+      where: { userId, status: "ACTIVE" },
+      data: { status: "ABANDONED" },
+    });
+    return tx.goal.create({
+      data: { userId, status: "ACTIVE", ...data },
+    });
+  });
+}
+
+/**
+ * Remove the user's active goal (retire to ABANDONED). Used when the user
+ * clears their target weight in Settings. Returns how many were retired.
+ */
+export async function abandonActiveGoals(userId: string): Promise<number> {
+  const res = await prisma.goal.updateMany({
+    where: { userId, status: "ACTIVE" },
+    data: { status: "ABANDONED" },
+  });
+  return res.count;
+}

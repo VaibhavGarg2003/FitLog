@@ -28,6 +28,7 @@ import {
   getProfileByUserId,
   updateProfile,
 } from "@/lib/repositories/profile.repository";
+import { getActiveGoal } from "@/lib/repositories/progress.repository";
 import { type OnboardingFormData } from "@/lib/validators/onboarding.schema";
 import { NotFoundError } from "@/lib/utils/errors";
 
@@ -68,7 +69,30 @@ export async function completeOnboarding(
     dietaryType: formData.dietaryType, // Step 3: passed to tiered protein system
   });
 
-  // 3. Save to database (User + Profile in one transaction)
+  // 2b. Build the goal row when the user set a REAL target (not Maintain and
+  //     not skipped). A different target weight is what makes a goal meaningful.
+  const hasRealGoal =
+    formData.goal !== "MAINTAIN" &&
+    formData.targetWeightKg != null &&
+    formData.targetWeightKg !== formData.weightKg;
+
+  const now = new Date();
+  const goalExtra = hasRealGoal
+    ? {
+        type: formData.goal,
+        startValue: formData.weightKg,
+        targetValue: formData.targetWeightKg!,
+        startDate: now,
+        // timelineMonths → target date (default 4 months if somehow absent).
+        targetDate: new Date(
+          now.getTime() +
+            (formData.timelineMonths ?? 4) * 30 * 24 * 60 * 60 * 1000
+        ),
+      }
+    : undefined;
+
+  // 3. Save to database (User + Profile + optional Goal + starting WeightLog,
+  //    all in one transaction).
   const result = await createUserWithProfile(
     {
       id: supabaseUser.id,
@@ -95,6 +119,10 @@ export async function completeOnboarding(
       targetProtein: calculated.targetProtein,
       targetCarbs: calculated.targetCarbs,
       targetFat: calculated.targetFat,
+    },
+    {
+      goal: goalExtra,
+      initialWeightKg: formData.weightKg,
     }
   );
 
@@ -105,10 +133,16 @@ export async function completeOnboarding(
 }
 
 /**
- * Get a user's profile or null if not found.
+ * Get a user's profile (with their active weight goal) or null if not found.
+ * The Dashboard and Settings read `activeGoal` from here to show target weight
+ * and goal progress — the Profile row holds current weight/macros, the Goal row
+ * holds the target. Two sources, one response.
  */
 export async function getUserProfile(userId: string) {
-  return getProfileByUserId(userId);
+  const profile = await getProfileByUserId(userId);
+  if (!profile) return null;
+  const activeGoal = await getActiveGoal(userId);
+  return { ...profile, activeGoal };
 }
 
 /**
