@@ -116,6 +116,7 @@ export function Step4Goal() {
       timelineDays: timeline * 30,
       wantsMuscle: selectedMode === "lean-muscle",
       tdee,
+      bmr,
       sex,
     });
   }, [
@@ -165,10 +166,15 @@ export function Step4Goal() {
     nextStep();
   }
 
+  // An unsafe plan must not be submittable. The warning panel tells the user to
+  // extend the timeline; letting Continue through anyway would save a goal date
+  // the (safely clamped) calorie target cannot possibly hit.
   const canContinue =
     selectedMode !== "" &&
     (!needsTarget ||
-      (targetWeightNum > 0 && targetWeightNum !== currentWeight));
+      (targetWeightNum > 0 &&
+        targetWeightNum !== currentWeight &&
+        preview?.isSafe !== false));
 
   // Once a goal mode is chosen, the user may always skip setting a target.
   const canSkipTarget = selectedMode !== "";

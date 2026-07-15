@@ -32,6 +32,13 @@ import { getActiveGoal } from "@/lib/repositories/progress.repository";
 import { type OnboardingFormData } from "@/lib/validators/onboarding.schema";
 import { NotFoundError } from "@/lib/utils/errors";
 
+// Onboarding Step 4 slider is in months; the engine and the Goal row work in
+// days. 30 is the same approximation the Step 4 preview uses — the two must
+// match exactly or the previewed plan and the saved plan diverge.
+const DAYS_PER_MONTH = 30;
+const DEFAULT_TIMELINE_MONTHS = 4;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 /**
  * Complete the onboarding process for a new user.
  *
@@ -58,7 +65,23 @@ export async function completeOnboarding(
     age--;
   }
 
-  // 2. Run the calorie engine
+  // 2. Build the goal row when the user set a REAL target (not Maintain and
+  //    not skipped). A different target weight is what makes a goal meaningful.
+  const hasRealGoal =
+    formData.goal !== "MAINTAIN" &&
+    formData.targetWeightKg != null &&
+    formData.targetWeightKg !== formData.weightKg;
+
+  // Onboarding Step 4 sends timelineMonths; the engine works in days.
+  // Keep the ×30 conversion identical to the preview's, or the number the user
+  // agreed to and the number we save drift apart again.
+  const timelineDays = hasRealGoal
+    ? (formData.timelineMonths ?? DEFAULT_TIMELINE_MONTHS) * DAYS_PER_MONTH
+    : undefined;
+
+  // 3. Run the calorie engine.
+  //    Passing targetWeightKg + timelineDays puts the engine in TIMELINE MODE,
+  //    so the saved target is the same number Step 4 previewed (FIX 6).
   const calculated = calculateFullProfile({
     sex: formData.sex,
     weightKg: formData.weightKg,
@@ -67,14 +90,9 @@ export async function completeOnboarding(
     activityLevel: formData.activityLevel,
     goal: formData.goal,
     dietaryType: formData.dietaryType, // Step 3: passed to tiered protein system
+    targetWeightKg: hasRealGoal ? formData.targetWeightKg : undefined,
+    timelineDays,
   });
-
-  // 2b. Build the goal row when the user set a REAL target (not Maintain and
-  //     not skipped). A different target weight is what makes a goal meaningful.
-  const hasRealGoal =
-    formData.goal !== "MAINTAIN" &&
-    formData.targetWeightKg != null &&
-    formData.targetWeightKg !== formData.weightKg;
 
   const now = new Date();
   const goalExtra = hasRealGoal
@@ -83,15 +101,13 @@ export async function completeOnboarding(
         startValue: formData.weightKg,
         targetValue: formData.targetWeightKg!,
         startDate: now,
-        // timelineMonths → target date (default 4 months if somehow absent).
-        targetDate: new Date(
-          now.getTime() +
-            (formData.timelineMonths ?? 4) * 30 * 24 * 60 * 60 * 1000
-        ),
+        // timelineDays → target date. Derived from the same value fed to the
+        // engine above, so the deadline and the calories always agree.
+        targetDate: new Date(now.getTime() + timelineDays! * MS_PER_DAY),
       }
     : undefined;
 
-  // 3. Save to database (User + Profile + optional Goal + starting WeightLog,
+  // 4. Save to database (User + Profile + optional Goal + starting WeightLog,
   //    all in one transaction).
   const result = await createUserWithProfile(
     {
@@ -148,6 +164,11 @@ export async function getUserProfile(userId: string) {
 /**
  * Recalculate TDEE and macros when user updates their profile.
  * Called from settings page when user changes weight, activity, or goal.
+ *
+ * GOAL-AWARE (FIX 6): if the user has an active weight goal, recalculation
+ * stays in timeline mode using the REMAINING days to their target date.
+ * Without this, changing weight in Settings would silently drop the user back
+ * onto the static preset (-500) and overwrite the plan onboarding built.
  */
 export async function recalculateProfile(
   userId: string,
@@ -173,6 +194,19 @@ export async function recalculateProfile(
   const goal = updates.goal ?? current.goal ?? "MAINTAIN";
   const dietaryType = updates.dietaryType ?? current.dietaryType ?? "NON_VEG";
 
+  // Stay in timeline mode when an active goal exists, using the days LEFT
+  // rather than the original timeline — the deadline hasn't moved just
+  // because the user updated their weight.
+  const activeGoal = await getActiveGoal(userId);
+  const remainingDays = activeGoal?.targetDate
+    ? Math.ceil((activeGoal.targetDate.getTime() - Date.now()) / MS_PER_DAY)
+    : undefined;
+
+  // A goal whose date has passed can't drive a timeline; fall back to presets
+  // rather than dividing by zero or a negative.
+  const useGoalTimeline =
+    activeGoal != null && remainingDays != null && remainingDays > 0;
+
   const calculated = calculateFullProfile({
     sex,
     weightKg,
@@ -181,6 +215,8 @@ export async function recalculateProfile(
     activityLevel,
     goal,
     dietaryType, // Step 3: passed to tiered protein system
+    targetWeightKg: useGoalTimeline ? activeGoal.targetValue : undefined,
+    timelineDays: useGoalTimeline ? remainingDays : undefined,
   });
 
   return updateProfile(userId, {

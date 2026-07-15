@@ -18,7 +18,9 @@ export {
   calculateMacroSplit,
   calculateFullProfile,
   calculateGoalFromTimeline,
+  calculateMinSafeCalories,
   FAT_GRAMS_PER_KG_FLOOR,
+  MAX_DEFICIT_FRACTION_OF_TDEE,
 } from "./tdee";
 
 export { calculateCardioBurn, type CalorieBurnRange } from "./cardio";

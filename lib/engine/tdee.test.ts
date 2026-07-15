@@ -17,6 +17,7 @@ import {
   calculateMacroSplit,
   calculateGoalFromTimeline,
   calculateFullProfile,
+  calculateMinSafeCalories,
 } from "@/lib/engine/tdee";
 
 describe("calculateBMR (Mifflin-St Jeor)", () => {
@@ -121,10 +122,45 @@ describe("calculateMacroSplit (tiered protein + rounding order)", () => {
     const { carbs } = calculateMacroSplit(800, 120, "GAIN_MUSCLE");
     expect(carbs).toBeGreaterThanOrEqual(0);
   });
+
+  // ── FIX 7: the 25% share and the 0.5g/kg floor scale differently ──
+  it("raises fat to the 0.5g/kg floor when 25% of calories falls short", () => {
+    // 108kg on 1882 kcal: 25% = 52.3g, but the floor is 54g. Floor wins.
+    const { fat } = calculateMacroSplit(1882, 108, "LOSE_FAT");
+    expect(fat).toBe(54);
+  });
+
+  it("takes the fat shortfall out of carbs, not out of thin air", () => {
+    const { protein, carbs, fat } = calculateMacroSplit(1882, 108, "LOSE_FAT");
+    // Total must still reconcile to the calorie budget
+    expect(protein * 4 + carbs * 4 + fat * 9).toBeLessThanOrEqual(1882 + 4);
+  });
+});
+
+describe("calculateMinSafeCalories (FIX 5 — three floors)", () => {
+  it("uses the absolute medical floor for small users", () => {
+    // Tiny BMR, tiny TDEE: 75% of 1380 = 1035, BMR = 1150 → the 1200 floor wins
+    expect(calculateMinSafeCalories(1380, 1150, "FEMALE")).toBe(1200);
+  });
+
+  it("uses BMR for sedentary users (TDEE close to BMR)", () => {
+    // 75% of 2160 = 1620, absolute floor 1500 → BMR 1800 wins
+    expect(calculateMinSafeCalories(2160, 1800, "MALE")).toBe(1800);
+  });
+
+  it("uses the 25%-of-TDEE cap for active users (BMR far below TDEE)", () => {
+    // BMR 1700, absolute floor 1500 → 75% of 3000 = 2250 wins
+    expect(calculateMinSafeCalories(3000, 1700, "MALE")).toBe(2250);
+  });
 });
 
 describe("calculateGoalFromTimeline", () => {
-  const base = { tdee: 2600, sex: "MALE" as const, wantsMuscle: false };
+  const base = {
+    tdee: 2600,
+    bmr: 1677, // 2600 / 1.55 — a MODERATE user
+    sex: "MALE" as const,
+    wantsMuscle: false,
+  };
 
   it("returns MAINTAIN when target ≈ current weight", () => {
     const r = calculateGoalFromTimeline({
@@ -194,6 +230,53 @@ describe("calculateGoalFromTimeline", () => {
     });
     expect(r.mode).toBe("RECOMP");
   });
+
+  // ── FIX 5 regression: the 108kg case that shipped 1397 kcal as "safe" ──
+  //
+  // 108kg / 162.5cm / 22yo female, LIGHT activity, -26kg over 6 months.
+  // BMR 1825, TDEE 2509. The required deficit is 1112 kcal/day → 1397 kcal.
+  // Both PRE-FIX guards passed:
+  //   - 1397 > the 1200 female floor
+  //   - 1.011 kg/week < 1% of 108kg (1.08 kg/week)
+  // ...yet 1397 is 428 kcal BELOW her BMR and a 44% deficit off TDEE.
+  describe("the 108kg regression (July 15 audit)", () => {
+    const shweta = {
+      currentWeightKg: 108,
+      targetWeightKg: 82,
+      timelineDays: 180,
+      wantsMuscle: false,
+      tdee: 2509,
+      bmr: 1825,
+      sex: "FEMALE" as const,
+    };
+
+    it("no longer calls a sub-BMR target safe", () => {
+      const r = calculateGoalFromTimeline(shweta);
+      expect(r.isSafe).toBe(false);
+      expect(r.mode).toBe("AGGRESSIVE_WARNING");
+    });
+
+    it("never returns the unsafe 1397 — clamps up to the safe minimum", () => {
+      const r = calculateGoalFromTimeline(shweta);
+      expect(r.targetCalories).not.toBe(1397);
+      expect(r.targetCalories).toBe(1882); // 75% of 2509, above her 1825 BMR
+      expect(r.targetCalories).toBeGreaterThanOrEqual(shweta.bmr);
+    });
+
+    it("tells her the honest timeline instead of the requested one", () => {
+      const r = calculateGoalFromTimeline(shweta);
+      // 26kg × 7700 / (2509 - 1882) = ~319 days ≈ 11 months, not 6
+      expect(r.safeTimelineDays).toBeGreaterThan(180);
+      expect(r.warningMessage).toContain("1,882");
+    });
+
+    it("passes the 1%-bodyweight rate rule — proving that guard alone is not enough", () => {
+      // This is the whole point: the old code had ONLY this guard, and 1.011
+      // sneaks under 1.08. The floor guard is what catches her.
+      const weeklyLoss = (26 * 7700) / 180 / 7700 * 7;
+      expect(weeklyLoss).toBeLessThan(108 * 0.01);
+    });
+  });
 });
 
 describe("calculateFullProfile (onboarding one-shot)", () => {
@@ -212,5 +295,70 @@ describe("calculateFullProfile (onboarding one-shot)", () => {
     expect(p.targetProtein).toBe(131); // 82 × 1.6
     expect(p.targetFat).toBe(65); // 2326 × 0.25 / 9
     expect(p.targetCarbs).toBe(305); // remainder from raw decimals
+  });
+
+  it("falls back to preset mode when no target/timeline is given", () => {
+    const p = calculateFullProfile({
+      sex: "MALE",
+      weightKg: 82,
+      heightCm: 178,
+      age: 23,
+      activityLevel: "MODERATE",
+      goal: "LOSE_FAT",
+    });
+    expect(p.plan).toBeUndefined();
+    expect(p.targetCalories).toBe(2826 - 500); // static GOAL_ADJUSTMENTS
+  });
+
+  // ── FIX 6 regression: preview and saved plan must be the same number ──
+  it("saves the SAME target the Step 4 preview computes", () => {
+    const shweta = {
+      sex: "FEMALE" as const,
+      weightKg: 108,
+      heightCm: 162.5,
+      age: 22,
+      activityLevel: "LIGHT" as const,
+      goal: "LOSE_FAT" as const,
+    };
+
+    // What Step 4 shows the user
+    const bmr = calculateBMR("FEMALE", 108, 162.5, 22);
+    const tdee = calculateTDEE(bmr, "LIGHT");
+    const preview = calculateGoalFromTimeline({
+      currentWeightKg: 108,
+      targetWeightKg: 82,
+      timelineDays: 180,
+      wantsMuscle: false,
+      tdee,
+      bmr,
+      sex: "FEMALE",
+    });
+
+    // What onboarding actually saves
+    const saved = calculateFullProfile({
+      ...shweta,
+      targetWeightKg: 82,
+      timelineDays: 180,
+    });
+
+    expect(saved.targetCalories).toBe(preview.targetCalories);
+    expect(saved.plan?.isSafe).toBe(false);
+    // Pre-fix this saved 2009 (TDEE-500) while previewing 1397 — two plans.
+    expect(saved.targetCalories).not.toBe(2009);
+  });
+
+  it("ignores target/timeline for MAINTAIN (no weight change implied)", () => {
+    const p = calculateFullProfile({
+      sex: "FEMALE",
+      weightKg: 60,
+      heightCm: 165,
+      age: 30,
+      activityLevel: "MODERATE",
+      goal: "MAINTAIN",
+      targetWeightKg: 55,
+      timelineDays: 90,
+    });
+    expect(p.plan).toBeUndefined();
+    expect(p.targetCalories).toBe(p.tdee);
   });
 });
