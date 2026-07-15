@@ -5,10 +5,57 @@ import { useOnboardingStore } from "@/stores/onboarding-store";
 import { step2Schema } from "@/lib/validators/onboarding.schema";
 import { cn } from "@/lib/utils/cn";
 
+/** Parse input as a non-negative number, or undefined when empty. */
+function parseNonNegative(raw: string): number | undefined {
+  if (!raw) return undefined;
+  const n = parseFloat(raw);
+  if (Number.isNaN(n)) return undefined;
+  // Prevent negative values from spinner or typed input
+  return Math.max(0, n);
+}
+
+/** Real-time field error from Zod step2Schema for a single field. */
+function fieldError(
+  field: "weightKg" | "heightCm",
+  value: number | undefined
+): string | undefined {
+  if (value === undefined) return undefined;
+  const validation = step2Schema.safeParse({
+    weightKg: field === "weightKg" ? value : 70,
+    heightCm: field === "heightCm" ? value : 170,
+  });
+  if (validation.success) return undefined;
+  return validation.error.flatten().fieldErrors[field]?.[0];
+}
+
 export function Step2Body() {
   const { formData, updateFormData, nextStep, prevStep } =
     useOnboardingStore();
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  function handleWeightChange(raw: string) {
+    const weightKg = parseNonNegative(raw);
+    updateFormData({ weightKg });
+    setErrors((prev) => {
+      const next = { ...prev };
+      const err = fieldError("weightKg", weightKg);
+      if (err) next.weightKg = err;
+      else delete next.weightKg;
+      return next;
+    });
+  }
+
+  function handleHeightChange(raw: string) {
+    const heightCm = parseNonNegative(raw);
+    updateFormData({ heightCm });
+    setErrors((prev) => {
+      const next = { ...prev };
+      const err = fieldError("heightCm", heightCm);
+      if (err) next.heightCm = err;
+      else delete next.heightCm;
+      return next;
+    });
+  }
 
   function handleNext() {
     const validation = step2Schema.safeParse({
@@ -30,9 +77,19 @@ export function Step2Body() {
     nextStep();
   }
 
+  // Only show BMI when both values are within valid schema ranges
+  const weightValid =
+    formData.weightKg !== undefined &&
+    formData.weightKg >= 30 &&
+    formData.weightKg <= 300;
+  const heightValid =
+    formData.heightCm !== undefined &&
+    formData.heightCm >= 100 &&
+    formData.heightCm <= 250;
+
   const bmi =
-    formData.weightKg && formData.heightCm
-      ? formData.weightKg / (formData.heightCm / 100) ** 2
+    weightValid && heightValid
+      ? formData.weightKg! / (formData.heightCm! / 100) ** 2
       : null;
 
   const bmiLabel =
@@ -58,16 +115,12 @@ export function Step2Body() {
             <input
               id="onboarding-weight"
               type="number"
-              step="0.1"
+              step="1"
+              min={0}
+              max={300}
               placeholder="70"
               value={formData.weightKg ?? ""}
-              onChange={(e) =>
-                updateFormData({
-                  weightKg: e.target.value
-                    ? parseFloat(e.target.value)
-                    : undefined,
-                })
-              }
+              onChange={(e) => handleWeightChange(e.target.value)}
               className={cn(
                 "w-full px-4 py-3 pr-12 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",
                 "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary",
@@ -93,16 +146,12 @@ export function Step2Body() {
             <input
               id="onboarding-height"
               type="number"
-              step="0.1"
+              step="1"
+              min={0}
+              max={250}
               placeholder="170"
               value={formData.heightCm ?? ""}
-              onChange={(e) =>
-                updateFormData({
-                  heightCm: e.target.value
-                    ? parseFloat(e.target.value)
-                    : undefined,
-                })
-              }
+              onChange={(e) => handleHeightChange(e.target.value)}
               className={cn(
                 "w-full px-4 py-3 pr-12 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",
                 "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary",
@@ -119,7 +168,7 @@ export function Step2Body() {
           )}
         </div>
 
-        {/* BMI Preview — full width under inputs on laptop */}
+        {/* BMI Preview — full width under inputs on laptop; only when in-range */}
         {bmi !== null && (
           <div className="sm:col-span-2 p-4 lg:p-5 bg-background rounded-xl border border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
