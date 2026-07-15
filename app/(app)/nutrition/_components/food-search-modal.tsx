@@ -20,7 +20,6 @@ import { useState } from "react";
 import { useDebounce } from "@/lib/hooks/use-debounce";
 import { useFoodSearch } from "@/lib/hooks/use-food-search";
 import { useLogFood } from "@/lib/hooks/use-nutrition";
-import { cn } from "@/lib/utils/cn";
 
 interface FoodSearchModalProps {
   isOpen: boolean;

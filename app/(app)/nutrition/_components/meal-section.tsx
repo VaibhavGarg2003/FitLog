@@ -34,7 +34,9 @@ interface MealSectionProps {
 }
 
 export function MealSection({
-  mealType,
+  // `mealType` stays in MealSectionProps (callers pass it, and it documents
+  // which slot this card is) but the body doesn't need it — so it isn't
+  // destructured here.
   emoji,
   label,
   foods,
