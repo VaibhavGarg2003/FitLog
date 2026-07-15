@@ -12,8 +12,9 @@
  * link callback redirects back with.
  */
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Globe, Lock, Check } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -25,44 +26,45 @@ interface Identities {
 
 export function SigninMethodsCard() {
   const searchParams = useSearchParams();
-  const [data, setData] = useState<Identities | null>(null);
-  const [banner, setBanner] = useState<{
-    kind: "ok" | "err";
-    text: string;
-  } | null>(null);
+  const queryClient = useQueryClient();
+
+  // Data via TanStack Query (like the rest of the app) — no effect, no manual
+  // setState, so nothing to trip react-hooks/set-state-in-effect.
+  const { data } = useQuery<Identities>({
+    queryKey: ["auth-identities"],
+    queryFn: async () => {
+      const res = await fetch("/api/auth/identities");
+      if (!res.ok) throw new Error("Failed to load sign-in methods");
+      return res.json();
+    },
+    retry: false,
+    staleTime: 60 * 1000,
+  });
+
+  // The banner is DERIVED from the URL (the link callback redirects back with
+  // ?linked / ?error). It's pure render state, so compute it with useMemo —
+  // never setState inside an effect for something derivable from props/params.
+  const banner = useMemo<{ kind: "ok" | "err"; text: string } | null>(() => {
+    if (searchParams.get("linked") === "google") {
+      return { kind: "ok", text: "Google connected ✓" };
+    }
+    if (searchParams.get("error") === "google_email_mismatch") {
+      return {
+        kind: "err",
+        text: "That was a different Google account. Connect the Google account that uses your FitLog email.",
+      };
+    }
+    if (searchParams.get("error") === "link_failed") {
+      return { kind: "err", text: "Couldn't connect Google. Please try again." };
+    }
+    return null;
+  }, [searchParams]);
 
   // Add-password sub-form (only for accounts without a password yet).
   const [showPw, setShowPw] = useState(false);
   const [pw, setPw] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [pwMsg, setPwMsg] = useState("");
-
-  async function load() {
-    try {
-      const res = await fetch("/api/auth/identities");
-      if (res.ok) setData(await res.json());
-    } catch {
-      /* leave as null → card just hides actions */
-    }
-  }
-
-  useEffect(() => {
-    load();
-    // Translate the link-callback redirect params into a friendly banner.
-    if (searchParams.get("linked") === "google") {
-      setBanner({ kind: "ok", text: "Google connected ✓" });
-    } else if (searchParams.get("error") === "google_email_mismatch") {
-      setBanner({
-        kind: "err",
-        text: "That was a different Google account. Connect the Google account that uses your FitLog email.",
-      });
-    } else if (searchParams.get("error") === "link_failed") {
-      setBanner({
-        kind: "err",
-        text: "Couldn't connect Google. Please try again.",
-      });
-    }
-  }, [searchParams]);
 
   async function addPassword() {
     if (pw.length < 6) {
@@ -81,7 +83,8 @@ export function SigninMethodsCard() {
       setPwMsg("✅ Password set. You can now log in with email + password.");
       setPw("");
       setShowPw(false);
-      load();
+      // Refresh the identities so "Email & password" flips to Enabled.
+      queryClient.invalidateQueries({ queryKey: ["auth-identities"] });
     } catch {
       setPwMsg("❌ Could not set password. Try again.");
     } finally {
