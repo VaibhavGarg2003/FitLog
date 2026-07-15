@@ -14,9 +14,9 @@
  * The page reads the session server-side (getAuthUserId — local JWT
  * verification, no network round-trip) and renders two variants:
  *   logged OUT → marketing page: Log in / Sign up / "Get started"
- *   logged IN  → app navbar (Dashboard/Workout/Nutrition/Progress)
- *                and a "Go to Dashboard" CTA — never asks an existing
- *                user to sign up again.
+ *   logged IN  → app navbar (Dashboard/Workout/Nutrition/Progress),
+ *                profile avatar with Sign out, and a "Go to Dashboard"
+ *                CTA — never asks an existing user to sign up again.
  *
  * Trade-off: reading cookies makes this route dynamic instead of
  * statically cached. Verification is local (no Supabase call), so the
@@ -26,6 +26,7 @@ import Link from "next/link";
 import { Dumbbell } from "lucide-react";
 import { APP_NAME } from "@/lib/utils/constants";
 import { getAuthUserId } from "@/lib/supabase/server";
+import { UserMenu } from "@/components/shared/user-menu";
 
 const APP_NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -51,24 +52,27 @@ export default async function LandingPage() {
         </div>
 
         {isLoggedIn ? (
-          /* Member navbar: straight into the app, no login prompts */
-          <nav className="flex items-center gap-1 sm:gap-2">
-            {APP_NAV_LINKS.map((link) => (
+          /* Member navbar: app links + account menu (avatar / sign out) */
+          <div className="flex items-center gap-2 sm:gap-3">
+            <nav className="flex items-center gap-1 sm:gap-2">
+              {APP_NAV_LINKS.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="hidden sm:block px-3 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  {link.label}
+                </Link>
+              ))}
               <Link
-                key={link.href}
-                href={link.href}
-                className="hidden sm:block px-3 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+                href="/dashboard"
+                className="px-4 py-2 text-sm bg-primary text-background rounded-lg hover:bg-primary-hover transition-colors font-medium sm:hidden"
               >
-                {link.label}
+                Open app
               </Link>
-            ))}
-            <Link
-              href="/dashboard"
-              className="px-4 py-2 text-sm bg-primary text-background rounded-lg hover:bg-primary-hover transition-colors font-medium sm:hidden"
-            >
-              Open app
-            </Link>
-          </nav>
+            </nav>
+            <UserMenu />
+          </div>
         ) : (
           /* Visitor navbar */
           <div className="flex gap-3">

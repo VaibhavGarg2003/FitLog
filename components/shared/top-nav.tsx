@@ -2,15 +2,18 @@
  * Top Navigation Header — Responsive App Bar
  * ═══════════════════════════════════════════
  *
- * ONE header, two jobs, split by screen width:
+ * ONE header, three jobs, split by screen width:
  *
  * 1. LOGO (always visible) — links to "/" (the landing page).
- *    On phones this is the ONLY thing shown: a slim "back to home"
- *    bar. On laptops it's the left side of a full nav bar.
+ *    On phones this is the left side of a slim bar. On laptops
+ *    it's the left side of a full nav bar.
  *
  * 2. NAV LINKS (`hidden lg:flex`) — Dashboard / Workout / Nutrition /
  *    Progress / Settings, shown only at ≥1024px. Below that the
  *    BottomNav tab bar handles navigation (thumb-friendly on mobile).
+ *
+ * 3. USER MENU (always visible, top-right) — Google profile photo
+ *    (or fallback). Click opens a popover with "Sign out".
  *
  * WHY CSS BREAKPOINTS, NOT JS?
  * ───────────────────────────
@@ -28,6 +31,7 @@ import { usePathname } from "next/navigation";
 import { Dumbbell } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { APP_NAME, NAV_ITEMS } from "@/lib/utils/constants";
+import { UserMenu } from "@/components/shared/user-menu";
 
 export function TopNav() {
   const pathname = usePathname();
@@ -52,29 +56,34 @@ export function TopNav() {
           </span>
         </Link>
 
-        {/* Desktop nav links — hidden on phones/tablets (< lg) */}
-        <nav className="hidden lg:flex items-center gap-1">
-          {NAV_ITEMS.map((item) => {
-            // /workout/123 should still highlight the Workout link.
-            const isActive =
-              pathname === item.href || pathname.startsWith(item.href + "/");
+        {/* Right cluster: desktop nav + always-visible account menu */}
+        <div className="flex items-center gap-3">
+          {/* Desktop nav links — hidden on phones/tablets (< lg) */}
+          <nav className="hidden lg:flex items-center gap-1">
+            {NAV_ITEMS.map((item) => {
+              // /workout/123 should still highlight the Workout link.
+              const isActive =
+                pathname === item.href || pathname.startsWith(item.href + "/");
 
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "px-3 py-2 text-sm font-medium rounded-lg transition-colors",
-                  isActive
-                    ? "text-primary"
-                    : "text-text-secondary hover:text-text-primary"
-                )}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+                    isActive
+                      ? "text-primary"
+                      : "text-text-secondary hover:text-text-primary"
+                  )}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <UserMenu />
+        </div>
       </div>
     </header>
   );
