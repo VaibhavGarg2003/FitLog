@@ -47,3 +47,8 @@ prisma/generated/
 # sentry
 .sentryclirc
 
+# Local planning / private docs — never push to GitHub
+docs/OVERVIEW.md
+docs/reset-user-tool.md
+docs/security-hardening-plan.md
+
