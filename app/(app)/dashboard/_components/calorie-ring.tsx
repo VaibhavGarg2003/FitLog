@@ -48,9 +48,15 @@ export function CalorieRing({ consumed, target }: CalorieRingProps) {
   return (
     <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border h-full">
       <div className="flex items-center gap-6 lg:gap-8">
-        {/* SVG Ring */}
-        <div className="relative flex-shrink-0">
-          <svg width="160" height="160" className="transform -rotate-90 lg:w-[180px] lg:h-[180px]">
+        {/* SVG Ring — fixed-size wrapper so overlay and SVG share the same box.
+            Inline SVG + CSS-only sizing without viewBox can leave the absolute
+            center text slightly off (commonly shifted right). */}
+        <div className="relative size-40 shrink-0 lg:size-[180px]">
+          <svg
+            viewBox="0 0 160 160"
+            className="absolute inset-0 size-full -rotate-90"
+            aria-hidden
+          >
             {/* Background ring */}
             <circle
               cx="80"
@@ -77,12 +83,14 @@ export function CalorieRing({ consumed, target }: CalorieRingProps) {
               }}
             />
           </svg>
-          {/* Center text */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-2xl lg:text-3xl font-bold text-text-primary">
+          {/* Center text — same box as the ring via absolute inset-0 */}
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+            <span className="text-2xl font-bold leading-none tabular-nums text-text-primary lg:text-3xl">
               {consumed.toLocaleString()}
             </span>
-            <span className="text-xs text-text-muted">kcal eaten</span>
+            <span className="mt-0.5 text-xs leading-none text-text-muted">
+              kcal eaten
+            </span>
           </div>
         </div>
 
