@@ -17,11 +17,36 @@
 import { useState, useMemo } from "react";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { cn } from "@/lib/utils/cn";
+import { step4Schema } from "@/lib/validators/onboarding.schema";
 import {
   calculateBMR,
   calculateTDEE,
   calculateGoalFromTimeline,
 } from "@/lib/engine";
+
+/** Schema min — also the default starting value for the target weight input. */
+const MIN_TARGET_WEIGHT_KG = 30;
+const MAX_TARGET_WEIGHT_KG = 300;
+
+/** Parse input as a number at/above the schema floor, or undefined when empty. */
+function parseAtLeast(raw: string, floor: number): number | undefined {
+  if (!raw) return undefined;
+  const n = parseFloat(raw);
+  if (Number.isNaN(n)) return undefined;
+  // Prevent values below the floor from spinner or typed input
+  return Math.max(floor, n);
+}
+
+/** Real-time field error from Zod step4Schema for targetWeightKg. */
+function targetWeightError(value: number | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const validation = step4Schema.safeParse({
+    goal: "LOSE_FAT",
+    targetWeightKg: value,
+  });
+  if (validation.success) return undefined;
+  return validation.error.flatten().fieldErrors.targetWeightKg?.[0];
+}
 
 // ── Body Goal Modes (plain language, no jargon) ─────────
 const BODY_GOALS = [
@@ -78,21 +103,78 @@ export function Step4Goal() {
     if (formData.goal === "LOSE_FAT") return "lean-cut";
     return "";
   });
-  const [targetWeight, setTargetWeight] = useState<string>(
-    () => formData.targetWeightKg?.toString() ?? ""
+  const [targetWeight, setTargetWeight] = useState<string>(() =>
+    String(formData.targetWeightKg ?? MIN_TARGET_WEIGHT_KG)
   );
   const [timeline, setTimeline] = useState<number>(
     () => formData.timelineMonths ?? 4
+  );
+  const [targetWeightFieldError, setTargetWeightFieldError] = useState<
+    string | undefined
+  >(() =>
+    targetWeightError(formData.targetWeightKg ?? MIN_TARGET_WEIGHT_KG)
   );
 
   const currentWeight = formData.weightKg ?? 70;
   const selectedGoalObj = BODY_GOALS.find((g) => g.id === selectedMode);
   const needsTarget = selectedMode !== "maintain" && selectedMode !== "";
-  const targetWeightNum = parseFloat(targetWeight) || 0;
+  const targetWeightNum =
+    parseAtLeast(targetWeight, MIN_TARGET_WEIGHT_KG) ?? MIN_TARGET_WEIGHT_KG;
+  const targetWeightInRange =
+    targetWeightNum >= MIN_TARGET_WEIGHT_KG &&
+    targetWeightNum <= MAX_TARGET_WEIGHT_KG;
+
+  function handleTargetWeightChange(raw: string) {
+    // Empty → snap back to schema min (spinner always has a valid base)
+    if (!raw) {
+      setTargetWeight(String(MIN_TARGET_WEIGHT_KG));
+      setTargetWeightFieldError(
+        targetWeightError(MIN_TARGET_WEIGHT_KG) ??
+          (MIN_TARGET_WEIGHT_KG === currentWeight
+            ? "Target weight must differ from your current weight"
+            : undefined)
+      );
+      updateFormData({ targetWeightKg: MIN_TARGET_WEIGHT_KG });
+      return;
+    }
+
+    const n = parseFloat(raw);
+    // Clamp below-min (spinner / typed negatives) up to the schema floor
+    if (!Number.isNaN(n) && n < MIN_TARGET_WEIGHT_KG) {
+      setTargetWeight(String(MIN_TARGET_WEIGHT_KG));
+      setTargetWeightFieldError(
+        targetWeightError(MIN_TARGET_WEIGHT_KG) ??
+          (MIN_TARGET_WEIGHT_KG === currentWeight
+            ? "Target weight must differ from your current weight"
+            : undefined)
+      );
+      updateFormData({ targetWeightKg: MIN_TARGET_WEIGHT_KG });
+      return;
+    }
+
+    // Keep the raw string so intermediate values like "75." still type cleanly
+    setTargetWeight(raw);
+    if (Number.isNaN(n)) {
+      setTargetWeightFieldError(undefined);
+      updateFormData({ targetWeightKg: undefined });
+      return;
+    }
+
+    const rangeErr = targetWeightError(n);
+    setTargetWeightFieldError(
+      rangeErr ??
+        (n === currentWeight
+          ? "Target weight must differ from your current weight"
+          : undefined)
+    );
+    updateFormData({ targetWeightKg: n });
+  }
 
   const preview = useMemo(() => {
-    if (!selectedGoalObj || !needsTarget || !targetWeightNum) return null;
+    // Only compute plan preview when target is in a realistic schema range
+    if (!selectedGoalObj || !needsTarget || !targetWeightInRange) return null;
     if (selectedMode === "maintain") return null;
+    const target = targetWeightNum!;
 
     const sex = formData.sex ?? "MALE";
     const heightCm = formData.heightCm ?? 170;
@@ -112,7 +194,7 @@ export function Step4Goal() {
 
     return calculateGoalFromTimeline({
       currentWeightKg: currentWeight,
-      targetWeightKg: targetWeightNum,
+      targetWeightKg: target,
       timelineDays: timeline * 30,
       wantsMuscle: selectedMode === "lean-muscle",
       tdee,
@@ -122,6 +204,7 @@ export function Step4Goal() {
   }, [
     selectedGoalObj,
     targetWeightNum,
+    targetWeightInRange,
     timeline,
     currentWeight,
     formData,
@@ -137,18 +220,50 @@ export function Step4Goal() {
     }
     if (modeId === "maintain") {
       setTargetWeight(currentWeight.toString());
+      setTargetWeightFieldError(undefined);
       updateFormData({
         goal: "MAINTAIN",
         targetWeightKg: currentWeight,
         timelineMonths: 1,
       });
+    } else if (
+      formData.targetWeightKg === undefined ||
+      targetWeight === "" ||
+      targetWeight === String(currentWeight)
+    ) {
+      // First time opening a goal that needs a target: start at schema min
+      // (unless user already set a different target earlier)
+      const hasCustomTarget =
+        formData.targetWeightKg !== undefined &&
+        formData.targetWeightKg !== currentWeight &&
+        formData.goal !== "MAINTAIN";
+      if (!hasCustomTarget) {
+        setTargetWeight(String(MIN_TARGET_WEIGHT_KG));
+        setTargetWeightFieldError(
+          MIN_TARGET_WEIGHT_KG === currentWeight
+            ? "Target weight must differ from your current weight"
+            : undefined
+        );
+        updateFormData({ targetWeightKg: MIN_TARGET_WEIGHT_KG });
+      }
     }
   }
 
   function handleNext() {
     if (!selectedGoalObj) return;
 
-    if (needsTarget && targetWeightNum) {
+    if (needsTarget) {
+      const err = targetWeightError(targetWeightNum);
+      if (err) {
+        setTargetWeightFieldError(err);
+        return;
+      }
+      if (targetWeightNum === currentWeight) {
+        setTargetWeightFieldError(
+          "Target weight must differ from your current weight"
+        );
+        return;
+      }
       updateFormData({
         targetWeightKg: targetWeightNum,
         timelineMonths: timeline,
@@ -169,11 +284,13 @@ export function Step4Goal() {
   // An unsafe plan must not be submittable. The warning panel tells the user to
   // extend the timeline; letting Continue through anyway would save a goal date
   // the (safely clamped) calorie target cannot possibly hit.
+  // Also block when target weight is missing, out of range, or equals current.
   const canContinue =
     selectedMode !== "" &&
     (!needsTarget ||
-      (targetWeightNum > 0 &&
+      (targetWeightInRange &&
         targetWeightNum !== currentWeight &&
+        !targetWeightFieldError &&
         preview?.isSafe !== false));
 
   // Once a goal mode is chosen, the user may always skip setting a target.
@@ -240,22 +357,39 @@ export function Step4Goal() {
               >
                 Target Weight (kg)
               </label>
-              <input
-                id="target-weight"
-                type="number"
-                inputMode="decimal"
-                value={targetWeight}
-                onChange={(e) => setTargetWeight(e.target.value)}
-                placeholder={
-                  selectedGoalObj?.goal === "GAIN_MUSCLE"
-                    ? `e.g., ${currentWeight + 5}`
-                    : `e.g., ${Math.max(40, currentWeight - 10)}`
-                }
-                className="w-full p-3 bg-background border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none transition-colors"
-              />
-              <p className="text-xs text-text-muted mt-1">
-                Current weight: {currentWeight} kg
-              </p>
+              <div className="relative">
+                <input
+                  id="target-weight"
+                  type="number"
+                  inputMode="decimal"
+                  step="1"
+                  min={MIN_TARGET_WEIGHT_KG}
+                  max={MAX_TARGET_WEIGHT_KG}
+                  value={targetWeight || String(MIN_TARGET_WEIGHT_KG)}
+                  onChange={(e) => handleTargetWeightChange(e.target.value)}
+                  placeholder={String(MIN_TARGET_WEIGHT_KG)}
+                  className={cn(
+                    "w-full p-3 pr-12 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",
+                    "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary",
+                    "transition-all",
+                    targetWeightFieldError
+                      ? "border-red-500"
+                      : "border-border"
+                  )}
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted text-sm">
+                  kg
+                </span>
+              </div>
+              {targetWeightFieldError ? (
+                <p className="mt-1 text-sm text-red-400">
+                  {targetWeightFieldError}
+                </p>
+              ) : (
+                <p className="text-xs text-text-muted mt-1">
+                  Current weight: {currentWeight} kg
+                </p>
+              )}
             </div>
 
             <div>
@@ -285,7 +419,7 @@ export function Step4Goal() {
             </div>
           </div>
 
-          {preview && targetWeightNum > 0 && (
+          {preview && targetWeightInRange && (
             <div
               className={cn(
                 "p-4 lg:p-5 rounded-xl border",

@@ -13,7 +13,7 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Dumbbell } from "lucide-react";
 import { useOnboardingStore } from "@/stores/onboarding-store";
@@ -49,14 +49,34 @@ const STEPS = [
   },
 ] as const;
 
-export function OnboardingShell() {
+export function OnboardingShell({ userId }: { userId: string }) {
   const router = useRouter();
-  const { currentStep, formData, reset } = useOnboardingStore();
+  const { currentStep, formData, hasHydrated } = useOnboardingStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Restore saved progress. This runs in an effect rather than at module scope
+  // so the first client render still matches the server HTML — see the
+  // skipHydration note in stores/onboarding-store.ts.
+  useEffect(() => {
+    let cancelled = false;
+
+    Promise.resolve(useOnboardingStore.persist.rehydrate()).finally(() => {
+      if (cancelled) return;
+      // Discard the restored progress if it belongs to a different account.
+      useOnboardingStore.getState().claimForUser(userId);
+      // Set last, and even if the read threw, so a storage failure degrades to
+      // a fresh wizard instead of a permanent loading state.
+      useOnboardingStore.getState().setHasHydrated(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
   const stepMeta = STEPS[currentStep - 1] ?? STEPS[0];
-  const progressPct = (currentStep / STEPS.length) * 100;
+  const progressPct = hasHydrated ? (currentStep / STEPS.length) * 100 : 0;
 
   async function handleSubmit() {
     setError(null);
@@ -85,13 +105,16 @@ export function OnboardingShell() {
         throw new Error(data.error || "Failed to save profile");
       }
 
-      // Success! Reset store and navigate to dashboard
-      reset();
-      router.push("/dashboard");
+      // Success. Do NOT call reset() here — it sets currentStep back to 1 while
+      // this page is still mounted, which flashes step 1 for a frame before
+      // navigation. Wipe localStorage only, leave in-memory step at 5 so the
+      // "Saving..." UI stays put until /dashboard takes over.
+      await useOnboardingStore.persist.clearStorage();
+      router.replace("/dashboard");
       router.refresh(); // Re-run server components to pick up new profile
+      // Keep isSubmitting true so the button doesn't re-enable mid-transition.
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
       setIsSubmitting(false);
     }
   }
@@ -108,11 +131,16 @@ export function OnboardingShell() {
             </span>
           </Link>
           <div className="text-sm text-text-secondary">
-            <span className="hidden sm:inline">Setup · </span>
-            <span className="font-semibold text-text-primary">
-              Step {currentStep}
-            </span>
-            <span className="text-text-muted"> / {STEPS.length}</span>
+            <span className="hidden sm:inline">Setup</span>
+            {hasHydrated && (
+              <>
+                <span className="hidden sm:inline"> · </span>
+                <span className="font-semibold text-text-primary">
+                  Step {currentStep}
+                </span>
+                <span className="text-text-muted"> / {STEPS.length}</span>
+              </>
+            )}
           </div>
         </div>
         {/* Edge-to-edge progress track */}
@@ -124,7 +152,27 @@ export function OnboardingShell() {
         </div>
       </header>
 
+      {/* ── Saved progress is still being read ──
+          Rendering the wizard here would flash step 1 at a user who left off
+          on step 3, which is the exact jolt this whole feature avoids. */}
+      {!hasHydrated && (
+        <main
+          className="w-full flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-6 lg:py-10"
+          aria-busy="true"
+        >
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-10 lg:items-start">
+            <div className="hidden lg:block lg:col-span-4 xl:col-span-3">
+              <div className="h-64 rounded-2xl bg-surface/40 animate-pulse" />
+            </div>
+            <div className="lg:col-span-8 xl:col-span-9">
+              <div className="h-96 rounded-2xl border border-border bg-surface/40 animate-pulse" />
+            </div>
+          </div>
+        </main>
+      )}
+
       {/* ── Full-width main ── */}
+      {hasHydrated && (
       <main className="w-full flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 py-6 lg:py-10">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-10 lg:items-start">
           {/* Left rail — context on laptop so the form doesn't float alone */}
@@ -223,6 +271,7 @@ export function OnboardingShell() {
           </div>
         </div>
       </main>
+      )}
     </div>
   );
 }

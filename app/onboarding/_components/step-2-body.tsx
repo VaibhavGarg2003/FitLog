@@ -5,13 +5,24 @@ import { useOnboardingStore } from "@/stores/onboarding-store";
 import { step2Schema } from "@/lib/validators/onboarding.schema";
 import { cn } from "@/lib/utils/cn";
 
-/** Parse input as a non-negative number, or undefined when empty. */
-function parseNonNegative(raw: string): number | undefined {
+/** Schema mins — also used as default starting values for the inputs. */
+const MIN_WEIGHT_KG = 30;
+const MAX_WEIGHT_KG = 300;
+const MIN_HEIGHT_CM = 100;
+const MAX_HEIGHT_CM = 250;
+
+/**
+ * Parse a number input. Empty → undefined.
+ * Values below `floor` (spinner / typed negatives) clamp up to the floor.
+ */
+function parseAtLeast(
+  raw: string,
+  floor: number
+): number | undefined {
   if (!raw) return undefined;
   const n = parseFloat(raw);
   if (Number.isNaN(n)) return undefined;
-  // Prevent negative values from spinner or typed input
-  return Math.max(0, n);
+  return Math.max(floor, n);
 }
 
 /** Real-time field error from Zod step2Schema for a single field. */
@@ -21,8 +32,8 @@ function fieldError(
 ): string | undefined {
   if (value === undefined) return undefined;
   const validation = step2Schema.safeParse({
-    weightKg: field === "weightKg" ? value : 70,
-    heightCm: field === "heightCm" ? value : 170,
+    weightKg: field === "weightKg" ? value : MIN_WEIGHT_KG,
+    heightCm: field === "heightCm" ? value : MIN_HEIGHT_CM,
   });
   if (validation.success) return undefined;
   return validation.error.flatten().fieldErrors[field]?.[0];
@@ -33,12 +44,19 @@ export function Step2Body() {
     useOnboardingStore();
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Display schema mins if store has no value yet (first visit / reset)
+  const weightDisplay = formData.weightKg ?? MIN_WEIGHT_KG;
+  const heightDisplay = formData.heightCm ?? MIN_HEIGHT_CM;
+
   function handleWeightChange(raw: string) {
-    const weightKg = parseNonNegative(raw);
-    updateFormData({ weightKg });
+    const weightKg = parseAtLeast(raw, MIN_WEIGHT_KG);
+    updateFormData({
+      weightKg: weightKg === undefined ? MIN_WEIGHT_KG : weightKg,
+    });
     setErrors((prev) => {
       const next = { ...prev };
-      const err = fieldError("weightKg", weightKg);
+      const value = weightKg === undefined ? MIN_WEIGHT_KG : weightKg;
+      const err = fieldError("weightKg", value);
       if (err) next.weightKg = err;
       else delete next.weightKg;
       return next;
@@ -46,11 +64,14 @@ export function Step2Body() {
   }
 
   function handleHeightChange(raw: string) {
-    const heightCm = parseNonNegative(raw);
-    updateFormData({ heightCm });
+    const heightCm = parseAtLeast(raw, MIN_HEIGHT_CM);
+    updateFormData({
+      heightCm: heightCm === undefined ? MIN_HEIGHT_CM : heightCm,
+    });
     setErrors((prev) => {
       const next = { ...prev };
-      const err = fieldError("heightCm", heightCm);
+      const value = heightCm === undefined ? MIN_HEIGHT_CM : heightCm;
+      const err = fieldError("heightCm", value);
       if (err) next.heightCm = err;
       else delete next.heightCm;
       return next;
@@ -79,17 +100,13 @@ export function Step2Body() {
 
   // Only show BMI when both values are within valid schema ranges
   const weightValid =
-    formData.weightKg !== undefined &&
-    formData.weightKg >= 30 &&
-    formData.weightKg <= 300;
+    weightDisplay >= MIN_WEIGHT_KG && weightDisplay <= MAX_WEIGHT_KG;
   const heightValid =
-    formData.heightCm !== undefined &&
-    formData.heightCm >= 100 &&
-    formData.heightCm <= 250;
+    heightDisplay >= MIN_HEIGHT_CM && heightDisplay <= MAX_HEIGHT_CM;
 
   const bmi =
     weightValid && heightValid
-      ? formData.weightKg! / (formData.heightCm! / 100) ** 2
+      ? weightDisplay / (heightDisplay / 100) ** 2
       : null;
 
   const bmiLabel =
@@ -116,10 +133,10 @@ export function Step2Body() {
               id="onboarding-weight"
               type="number"
               step="1"
-              min={0}
-              max={300}
-              placeholder="70"
-              value={formData.weightKg ?? ""}
+              min={MIN_WEIGHT_KG}
+              max={MAX_WEIGHT_KG}
+              placeholder={String(MIN_WEIGHT_KG)}
+              value={weightDisplay}
               onChange={(e) => handleWeightChange(e.target.value)}
               className={cn(
                 "w-full px-4 py-3 pr-12 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",
@@ -147,10 +164,10 @@ export function Step2Body() {
               id="onboarding-height"
               type="number"
               step="1"
-              min={0}
-              max={250}
-              placeholder="170"
-              value={formData.heightCm ?? ""}
+              min={MIN_HEIGHT_CM}
+              max={MAX_HEIGHT_CM}
+              placeholder={String(MIN_HEIGHT_CM)}
+              value={heightDisplay}
               onChange={(e) => handleHeightChange(e.target.value)}
               className={cn(
                 "w-full px-4 py-3 pr-12 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",

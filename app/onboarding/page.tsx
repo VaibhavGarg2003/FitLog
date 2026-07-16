@@ -34,5 +34,7 @@ export default async function OnboardingPage() {
     redirect("/dashboard");
   }
 
-  return <OnboardingShell />;
+  // userId lets the wizard confirm that any progress restored from
+  // localStorage belongs to THIS user before resuming it.
+  return <OnboardingShell userId={userId} />;
 }

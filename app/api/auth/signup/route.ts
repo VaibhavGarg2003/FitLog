@@ -13,7 +13,6 @@ import { createClient } from "@/lib/supabase/server";
 const signupSchema = z.object({
   email: z.string().email().max(254),
   password: z.string().min(6).max(200),
-  name: z.string().trim().min(1).max(100),
 });
 
 export async function POST(request: Request) {
@@ -27,7 +26,7 @@ export async function POST(request: Request) {
   const parsed = signupSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Please check your name, email, and password (min 6 characters)." },
+      { error: "Please check your email and password (min 6 characters)." },
       { status: 400 }
     );
   }
@@ -35,11 +34,12 @@ export async function POST(request: Request) {
   const origin = new URL(request.url).origin;
   const supabase = await createClient();
 
+  // Name is intentionally not collected here — it is captured during
+  // onboarding (Step 1) and written to public.users via completeOnboarding.
   const { data, error } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
     options: {
-      data: { name: parsed.data.name },
       // Confirmation email lands on our dedicated page (not the marketing home).
       // Must be allowlisted in Supabase → Auth → URL Configuration → Redirect URLs.
       emailRedirectTo: `${origin}/confirmed`,

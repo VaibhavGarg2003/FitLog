@@ -109,12 +109,14 @@ export async function completeOnboarding(
 
   // 4. Save to database (User + Profile + optional Goal + starting WeightLog,
   //    all in one transaction).
+  // Name is collected in onboarding Step 1 (not at signup). Prefer that value;
+  // OAuth providers may still supply a fallback via user_metadata.
   const result = await createUserWithProfile(
     {
       id: supabaseUser.id,
       email: supabaseUser.email,
       name:
-        formData.name ||
+        formData.name?.trim() ||
         supabaseUser.user_metadata?.full_name ||
         supabaseUser.user_metadata?.name ||
         null,

@@ -8,13 +8,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Dumbbell, Mail, Lock, User, Globe } from "lucide-react";
+import { Dumbbell, Mail, Lock, Globe } from "lucide-react";
 import { APP_NAME } from "@/lib/utils/constants";
 import { cn } from "@/lib/utils/cn";
 
 export default function SignupPage() {
   const router = useRouter();
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,7 +30,7 @@ export default function SignupPage() {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ email, password }),
       });
 
       const data = (await res.json().catch(() => ({}))) as {
@@ -152,30 +151,6 @@ export default function SignupPage() {
       </div>
 
       <form onSubmit={handleEmailSignup} className="space-y-4">
-        <div className="space-y-2">
-          <label htmlFor="name" className="text-sm text-text-secondary">
-            Full name
-          </label>
-          <div className="relative">
-            <User className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
-            <input
-              id="name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
-              required
-              autoComplete="name"
-              className={cn(
-                "w-full pl-10 pr-4 py-3 rounded-lg",
-                "bg-surface border border-border",
-                "text-text-primary placeholder:text-text-muted",
-                "focus:outline-none focus:border-accent transition-colors"
-              )}
-            />
-          </div>
-        </div>
-
         <div className="space-y-2">
           <label htmlFor="signup-email" className="text-sm text-text-secondary">Email</label>
           <div className="relative">
