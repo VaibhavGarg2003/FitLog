@@ -5,24 +5,21 @@ import { useOnboardingStore } from "@/stores/onboarding-store";
 import { step2Schema } from "@/lib/validators/onboarding.schema";
 import { cn } from "@/lib/utils/cn";
 
-/** Schema mins — also used as default starting values for the inputs. */
+/** Schema bounds — used for BMI preview and placeholder hints. */
 const MIN_WEIGHT_KG = 30;
 const MAX_WEIGHT_KG = 300;
 const MIN_HEIGHT_CM = 100;
 const MAX_HEIGHT_CM = 250;
 
 /**
- * Parse a number input. Empty → undefined.
- * Values below `floor` (spinner / typed negatives) clamp up to the floor.
+ * Parse a number field without clamping.
+ * Empty / incomplete input → undefined so the user can clear and retype.
  */
-function parseAtLeast(
-  raw: string,
-  floor: number
-): number | undefined {
-  if (!raw) return undefined;
-  const n = parseFloat(raw);
-  if (Number.isNaN(n)) return undefined;
-  return Math.max(floor, n);
+function parseOptionalNumber(raw: string): number | undefined {
+  if (!raw.trim()) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return undefined;
+  return n;
 }
 
 /** Real-time field error from Zod step2Schema for a single field. */
@@ -44,19 +41,21 @@ export function Step2Body() {
     useOnboardingStore();
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Display schema mins if store has no value yet (first visit / reset)
-  const weightDisplay = formData.weightKg ?? MIN_WEIGHT_KG;
-  const heightDisplay = formData.heightCm ?? MIN_HEIGHT_CM;
+  // Local strings: never clamp while typing (clamping "7" → 30 blocked keyboard entry).
+  const [weightInput, setWeightInput] = useState(() =>
+    formData.weightKg !== undefined ? String(formData.weightKg) : ""
+  );
+  const [heightInput, setHeightInput] = useState(() =>
+    formData.heightCm !== undefined ? String(formData.heightCm) : ""
+  );
 
   function handleWeightChange(raw: string) {
-    const weightKg = parseAtLeast(raw, MIN_WEIGHT_KG);
-    updateFormData({
-      weightKg: weightKg === undefined ? MIN_WEIGHT_KG : weightKg,
-    });
+    setWeightInput(raw);
+    const weightKg = parseOptionalNumber(raw);
+    updateFormData({ weightKg });
     setErrors((prev) => {
       const next = { ...prev };
-      const value = weightKg === undefined ? MIN_WEIGHT_KG : weightKg;
-      const err = fieldError("weightKg", value);
+      const err = fieldError("weightKg", weightKg);
       if (err) next.weightKg = err;
       else delete next.weightKg;
       return next;
@@ -64,14 +63,12 @@ export function Step2Body() {
   }
 
   function handleHeightChange(raw: string) {
-    const heightCm = parseAtLeast(raw, MIN_HEIGHT_CM);
-    updateFormData({
-      heightCm: heightCm === undefined ? MIN_HEIGHT_CM : heightCm,
-    });
+    setHeightInput(raw);
+    const heightCm = parseOptionalNumber(raw);
+    updateFormData({ heightCm });
     setErrors((prev) => {
       const next = { ...prev };
-      const value = heightCm === undefined ? MIN_HEIGHT_CM : heightCm;
-      const err = fieldError("heightCm", value);
+      const err = fieldError("heightCm", heightCm);
       if (err) next.heightCm = err;
       else delete next.heightCm;
       return next;
@@ -79,10 +76,9 @@ export function Step2Body() {
   }
 
   function handleNext() {
-    const validation = step2Schema.safeParse({
-      weightKg: formData.weightKg,
-      heightCm: formData.heightCm,
-    });
+    const weightKg = parseOptionalNumber(weightInput);
+    const heightCm = parseOptionalNumber(heightInput);
+    const validation = step2Schema.safeParse({ weightKg, heightCm });
 
     if (!validation.success) {
       const fieldErrors = validation.error.flatten().fieldErrors;
@@ -90,23 +86,37 @@ export function Step2Body() {
       for (const [key, msgs] of Object.entries(fieldErrors)) {
         if (msgs?.[0]) mapped[key] = msgs[0];
       }
+      if (weightKg === undefined) {
+        mapped.weightKg = mapped.weightKg ?? "Enter your weight";
+      }
+      if (heightCm === undefined) {
+        mapped.heightCm = mapped.heightCm ?? "Enter your height";
+      }
       setErrors(mapped);
       return;
     }
 
+    updateFormData(validation.data);
     setErrors({});
     nextStep();
   }
 
+  const weightNum = parseOptionalNumber(weightInput);
+  const heightNum = parseOptionalNumber(heightInput);
+
   // Only show BMI when both values are within valid schema ranges
   const weightValid =
-    weightDisplay >= MIN_WEIGHT_KG && weightDisplay <= MAX_WEIGHT_KG;
+    weightNum !== undefined &&
+    weightNum >= MIN_WEIGHT_KG &&
+    weightNum <= MAX_WEIGHT_KG;
   const heightValid =
-    heightDisplay >= MIN_HEIGHT_CM && heightDisplay <= MAX_HEIGHT_CM;
+    heightNum !== undefined &&
+    heightNum >= MIN_HEIGHT_CM &&
+    heightNum <= MAX_HEIGHT_CM;
 
   const bmi =
     weightValid && heightValid
-      ? weightDisplay / (heightDisplay / 100) ** 2
+      ? weightNum / (heightNum / 100) ** 2
       : null;
 
   const bmiLabel =
@@ -125,18 +135,22 @@ export function Step2Body() {
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6 lg:items-start">
         {/* Weight */}
         <div>
-          <label className="block text-sm font-medium text-text-secondary mb-2">
+          <label
+            htmlFor="onboarding-weight"
+            className="block text-sm font-medium text-text-secondary mb-2"
+          >
             Current Weight
           </label>
           <div className="relative">
             <input
               id="onboarding-weight"
               type="number"
-              step="1"
+              inputMode="decimal"
+              step="any"
               min={MIN_WEIGHT_KG}
               max={MAX_WEIGHT_KG}
-              placeholder={String(MIN_WEIGHT_KG)}
-              value={weightDisplay}
+              placeholder={`${MIN_WEIGHT_KG}–${MAX_WEIGHT_KG}`}
+              value={weightInput}
               onChange={(e) => handleWeightChange(e.target.value)}
               className={cn(
                 "w-full px-4 py-3 pr-12 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",
@@ -156,18 +170,22 @@ export function Step2Body() {
 
         {/* Height */}
         <div>
-          <label className="block text-sm font-medium text-text-secondary mb-2">
+          <label
+            htmlFor="onboarding-height"
+            className="block text-sm font-medium text-text-secondary mb-2"
+          >
             Height
           </label>
           <div className="relative">
             <input
               id="onboarding-height"
               type="number"
-              step="1"
+              inputMode="decimal"
+              step="any"
               min={MIN_HEIGHT_CM}
               max={MAX_HEIGHT_CM}
-              placeholder={String(MIN_HEIGHT_CM)}
-              value={heightDisplay}
+              placeholder={`${MIN_HEIGHT_CM}–${MAX_HEIGHT_CM}`}
+              value={heightInput}
               onChange={(e) => handleHeightChange(e.target.value)}
               className={cn(
                 "w-full px-4 py-3 pr-12 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",

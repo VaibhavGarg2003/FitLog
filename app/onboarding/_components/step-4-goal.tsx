@@ -24,17 +24,19 @@ import {
   calculateGoalFromTimeline,
 } from "@/lib/engine";
 
-/** Schema min — also the default starting value for the target weight input. */
+/** Schema bounds — used for range checks and placeholder hints. */
 const MIN_TARGET_WEIGHT_KG = 30;
 const MAX_TARGET_WEIGHT_KG = 300;
 
-/** Parse input as a number at/above the schema floor, or undefined when empty. */
-function parseAtLeast(raw: string, floor: number): number | undefined {
-  if (!raw) return undefined;
-  const n = parseFloat(raw);
-  if (Number.isNaN(n)) return undefined;
-  // Prevent values below the floor from spinner or typed input
-  return Math.max(floor, n);
+/**
+ * Parse a number field without clamping.
+ * Empty / incomplete input → undefined so the user can clear and retype.
+ */
+function parseOptionalNumber(raw: string): number | undefined {
+  if (!raw.trim()) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return undefined;
+  return n;
 }
 
 /** Real-time field error from Zod step4Schema for targetWeightKg. */
@@ -104,57 +106,33 @@ export function Step4Goal() {
     return "";
   });
   const [targetWeight, setTargetWeight] = useState<string>(() =>
-    String(formData.targetWeightKg ?? MIN_TARGET_WEIGHT_KG)
+    formData.targetWeightKg !== undefined
+      ? String(formData.targetWeightKg)
+      : ""
   );
   const [timeline, setTimeline] = useState<number>(
     () => formData.timelineMonths ?? 4
   );
   const [targetWeightFieldError, setTargetWeightFieldError] = useState<
     string | undefined
-  >(() =>
-    targetWeightError(formData.targetWeightKg ?? MIN_TARGET_WEIGHT_KG)
-  );
+  >(() => targetWeightError(formData.targetWeightKg));
 
   const currentWeight = formData.weightKg ?? 70;
   const selectedGoalObj = BODY_GOALS.find((g) => g.id === selectedMode);
   const needsTarget = selectedMode !== "maintain" && selectedMode !== "";
-  const targetWeightNum =
-    parseAtLeast(targetWeight, MIN_TARGET_WEIGHT_KG) ?? MIN_TARGET_WEIGHT_KG;
+  // Parsed value only — never clamp while typing (that blocked keyboard entry).
+  const targetWeightNum = parseOptionalNumber(targetWeight);
   const targetWeightInRange =
+    targetWeightNum !== undefined &&
     targetWeightNum >= MIN_TARGET_WEIGHT_KG &&
     targetWeightNum <= MAX_TARGET_WEIGHT_KG;
 
   function handleTargetWeightChange(raw: string) {
-    // Empty → snap back to schema min (spinner always has a valid base)
-    if (!raw) {
-      setTargetWeight(String(MIN_TARGET_WEIGHT_KG));
-      setTargetWeightFieldError(
-        targetWeightError(MIN_TARGET_WEIGHT_KG) ??
-          (MIN_TARGET_WEIGHT_KG === currentWeight
-            ? "Target weight must differ from your current weight"
-            : undefined)
-      );
-      updateFormData({ targetWeightKg: MIN_TARGET_WEIGHT_KG });
-      return;
-    }
-
-    const n = parseFloat(raw);
-    // Clamp below-min (spinner / typed negatives) up to the schema floor
-    if (!Number.isNaN(n) && n < MIN_TARGET_WEIGHT_KG) {
-      setTargetWeight(String(MIN_TARGET_WEIGHT_KG));
-      setTargetWeightFieldError(
-        targetWeightError(MIN_TARGET_WEIGHT_KG) ??
-          (MIN_TARGET_WEIGHT_KG === currentWeight
-            ? "Target weight must differ from your current weight"
-            : undefined)
-      );
-      updateFormData({ targetWeightKg: MIN_TARGET_WEIGHT_KG });
-      return;
-    }
-
-    // Keep the raw string so intermediate values like "75." still type cleanly
+    // Keep the raw string so the user can clear, retype, and enter intermediates.
     setTargetWeight(raw);
-    if (Number.isNaN(n)) {
+    const n = parseOptionalNumber(raw);
+
+    if (n === undefined) {
       setTargetWeightFieldError(undefined);
       updateFormData({ targetWeightKg: undefined });
       return;
@@ -172,9 +150,15 @@ export function Step4Goal() {
 
   const preview = useMemo(() => {
     // Only compute plan preview when target is in a realistic schema range
-    if (!selectedGoalObj || !needsTarget || !targetWeightInRange) return null;
+    if (
+      !selectedGoalObj ||
+      !needsTarget ||
+      !targetWeightInRange ||
+      targetWeightNum === undefined
+    ) {
+      return null;
+    }
     if (selectedMode === "maintain") return null;
-    const target = targetWeightNum!;
 
     const sex = formData.sex ?? "MALE";
     const heightCm = formData.heightCm ?? 170;
@@ -194,7 +178,7 @@ export function Step4Goal() {
 
     return calculateGoalFromTimeline({
       currentWeightKg: currentWeight,
-      targetWeightKg: target,
+      targetWeightKg: targetWeightNum,
       timelineDays: timeline * 30,
       wantsMuscle: selectedMode === "lean-muscle",
       tdee,
@@ -253,6 +237,10 @@ export function Step4Goal() {
     if (!selectedGoalObj) return;
 
     if (needsTarget) {
+      if (targetWeightNum === undefined) {
+        setTargetWeightFieldError("Enter a target weight");
+        return;
+      }
       const err = targetWeightError(targetWeightNum);
       if (err) {
         setTargetWeightFieldError(err);
@@ -362,12 +350,12 @@ export function Step4Goal() {
                   id="target-weight"
                   type="number"
                   inputMode="decimal"
-                  step="1"
+                  step="any"
                   min={MIN_TARGET_WEIGHT_KG}
                   max={MAX_TARGET_WEIGHT_KG}
-                  value={targetWeight || String(MIN_TARGET_WEIGHT_KG)}
+                  value={targetWeight}
                   onChange={(e) => handleTargetWeightChange(e.target.value)}
-                  placeholder={String(MIN_TARGET_WEIGHT_KG)}
+                  placeholder={`${MIN_TARGET_WEIGHT_KG}–${MAX_TARGET_WEIGHT_KG}`}
                   className={cn(
                     "w-full p-3 pr-12 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",
                     "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary",
