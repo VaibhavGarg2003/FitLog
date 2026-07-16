@@ -90,7 +90,9 @@ describe("onboarding store persistence", () => {
 
     expect(reloaded.getState().currentStep).toBe(1);
     expect(reloaded.getState().formData.name).toBeUndefined();
-    expect(reloaded.getState().formData.weightKg).toBeUndefined();
+    // weightKg resets to the schema-minimum default, not undefined —
+    // see INITIAL_FORM_DATA in onboarding-store.ts.
+    expect(reloaded.getState().formData.weightKg).toBe(30);
   });
 
   it("does not resurrect answers after a completed onboarding", async () => {

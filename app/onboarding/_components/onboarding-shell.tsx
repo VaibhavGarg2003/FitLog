@@ -51,7 +51,7 @@ const STEPS = [
 
 export function OnboardingShell({ userId }: { userId: string }) {
   const router = useRouter();
-  const { currentStep, formData, hasHydrated } = useOnboardingStore();
+  const { currentStep, formData, hasHydrated, setStep } = useOnboardingStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -195,42 +195,52 @@ export function OnboardingShell({ userId }: { userId: string }) {
                   const n = i + 1;
                   const done = n < currentStep;
                   const active = n === currentStep;
+                  // Only steps already reached hold saved answers worth
+                  // jumping back to — steps ahead aren't filled in yet.
+                  const reachable = n <= currentStep;
                   return (
-                    <li
-                      key={step.title}
-                      className={cn(
-                        "flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors",
-                        active
-                          ? "border-primary/40 bg-primary/10"
-                          : done
-                            ? "border-border bg-surface"
-                            : "border-border/60 bg-surface/40"
-                      )}
-                    >
-                      <span
+                    <li key={step.title}>
+                      <button
+                        type="button"
+                        disabled={!reachable}
+                        onClick={() => setStep(n)}
                         className={cn(
-                          "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                          "w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors text-left",
                           active
-                            ? "bg-primary text-white"
+                            ? "border-primary/40 bg-primary/10"
                             : done
-                              ? "bg-primary/20 text-primary"
-                              : "bg-border text-text-muted"
+                              ? "border-border bg-surface"
+                              : "border-border/60 bg-surface/40",
+                          reachable
+                            ? "cursor-pointer hover:border-primary/40"
+                            : "cursor-not-allowed"
                         )}
                       >
-                        {done ? "✓" : n}
-                      </span>
-                      <span
-                        className={cn(
-                          "text-sm font-medium",
-                          active
-                            ? "text-primary"
-                            : done
-                              ? "text-text-primary"
-                              : "text-text-muted"
-                        )}
-                      >
-                        {step.title}
-                      </span>
+                        <span
+                          className={cn(
+                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                            active
+                              ? "bg-primary text-white"
+                              : done
+                                ? "bg-primary/20 text-primary"
+                                : "bg-border text-text-muted"
+                          )}
+                        >
+                          {done ? "✓" : n}
+                        </span>
+                        <span
+                          className={cn(
+                            "text-sm font-medium",
+                            active
+                              ? "text-primary"
+                              : done
+                                ? "text-text-primary"
+                                : "text-text-muted"
+                          )}
+                        >
+                          {step.title}
+                        </span>
+                      </button>
                     </li>
                   );
                 })}
