@@ -60,15 +60,24 @@ export function SigninMethodsCard() {
     return null;
   }, [searchParams]);
 
-  // Add-password sub-form (only for accounts without a password yet).
+  // Password sub-form. ADD mode (no password yet) shows one field; CHANGE
+  // mode (password exists) also requires the current password — the server
+  // enforces this regardless of what the client sends.
   const [showPw, setShowPw] = useState(false);
+  const [currentPw, setCurrentPw] = useState("");
   const [pw, setPw] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [pwMsg, setPwMsg] = useState("");
 
-  async function addPassword() {
+  const hasPassword = data?.hasPassword ?? false;
+
+  async function savePassword() {
     if (pw.length < 6) {
       setPwMsg("Password must be at least 6 characters.");
+      return;
+    }
+    if (hasPassword && !currentPw) {
+      setPwMsg("Enter your current password first.");
       return;
     }
     setPwBusy(true);
@@ -77,16 +86,29 @@ export function SigninMethodsCard() {
       const res = await fetch("/api/auth/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: pw }),
+        body: JSON.stringify(
+          hasPassword
+            ? { currentPassword: currentPw, password: pw }
+            : { password: pw }
+        ),
       });
-      if (!res.ok) throw new Error();
-      setPwMsg("✅ Password set. You can now log in with email + password.");
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setPwMsg(`❌ ${body.error ?? "Could not save password. Try again."}`);
+        return;
+      }
+      setPwMsg(
+        hasPassword
+          ? "✅ Password updated."
+          : "✅ Password set. You can now log in with email + password."
+      );
       setPw("");
+      setCurrentPw("");
       setShowPw(false);
-      // Refresh the identities so "Email & password" flips to Enabled.
+      // Refresh so the row flips to "Change password" after a first add.
       queryClient.invalidateQueries({ queryKey: ["auth-identities"] });
     } catch {
-      setPwMsg("❌ Could not set password. Try again.");
+      setPwMsg("❌ Could not save password. Try again.");
     } finally {
       setPwBusy(false);
     }
@@ -115,39 +137,49 @@ export function SigninMethodsCard() {
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-sm text-text-primary">
           <Lock size={16} className="text-text-muted" /> Email &amp; password
+          {hasPassword && (
+            <span className="flex items-center gap-0.5 text-xs text-primary">
+              <Check size={13} /> Enabled
+            </span>
+          )}
         </span>
-        {data?.hasPassword ? (
-          <span className="flex items-center gap-1 text-xs text-primary">
-            <Check size={14} /> Enabled
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setShowPw((s) => !s)}
-            className="text-xs font-medium text-primary hover:underline"
-          >
-            Add password
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setShowPw((s) => !s)}
+          className="text-xs font-medium text-primary hover:underline"
+        >
+          {hasPassword ? "Change password" : "Add password"}
+        </button>
       </div>
 
-      {/* Add-password sub-form (Google-only users) */}
-      {showPw && !data?.hasPassword && (
+      {/* Password sub-form — CHANGE mode also asks for the current password */}
+      {showPw && (
         <div className="space-y-2 pl-6">
+          {hasPassword && (
+            <input
+              type="password"
+              value={currentPw}
+              onChange={(e) => setCurrentPw(e.target.value)}
+              placeholder="Current password"
+              autoComplete="current-password"
+              className="w-full p-2.5 bg-background border border-border rounded-lg text-sm text-text-primary focus:border-primary focus:outline-none"
+            />
+          )}
           <input
             type="password"
             value={pw}
             onChange={(e) => setPw(e.target.value)}
             placeholder="New password (min 6 chars)"
+            autoComplete="new-password"
             className="w-full p-2.5 bg-background border border-border rounded-lg text-sm text-text-primary focus:border-primary focus:outline-none"
           />
           <button
             type="button"
-            onClick={addPassword}
+            onClick={savePassword}
             disabled={pwBusy}
             className="w-full py-2 rounded-lg text-sm font-semibold bg-primary text-white hover:bg-primary-hover transition-colors disabled:opacity-50"
           >
-            {pwBusy ? "Saving..." : "Save password"}
+            {pwBusy ? "Saving..." : hasPassword ? "Update password" : "Save password"}
           </button>
         </div>
       )}

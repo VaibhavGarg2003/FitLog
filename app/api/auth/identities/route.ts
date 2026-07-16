@@ -13,6 +13,7 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { userHasPassword } from "@/lib/repositories/auth.repository";
 
 export async function GET() {
   const supabase = await createClient();
@@ -28,10 +29,16 @@ export async function GET() {
   const identities = user.identities ?? [];
   const providers = identities.map((i) => i.provider);
 
+  // NOTE: hasPassword must come from auth.users.encrypted_password, NOT from
+  // the identities list — updateUser({ password }) sets a password without
+  // creating an "email" identity, so `providers.includes("email")` misses
+  // passwords added by Google-first users.
+  const hasPassword = await userHasPassword(user.id);
+
   return NextResponse.json({
     email: user.email ?? null,
     providers,
-    hasPassword: providers.includes("email"),
+    hasPassword,
     hasGoogle: providers.includes("google"),
   });
 }
