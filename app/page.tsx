@@ -9,23 +9,23 @@
  * on the server before being sent to the browser. Google can
  * index the content immediately.
  *
- * AUTH-AWARE (July 13 fix):
- * ─────────────────────────
- * The page reads the session server-side (getAuthUserId — local JWT
- * verification, no network round-trip) and renders two variants:
- *   logged OUT → marketing page: Log in / Sign up / "Get started"
- *   logged IN  → app navbar (Dashboard/Workout/Nutrition/Progress),
- *                profile avatar with Sign out, and a "Go to Dashboard"
- *                CTA — never asks an existing user to sign up again.
+ * AUTH-AWARE (three variants):
+ * ───────────────────────────
+ *   logged OUT           → marketing: Log in / Sign up / "Get started"
+ *   logged IN + onboarded → app navbar + "Go to Dashboard"
+ *   logged IN + incomplete onboarding → logo + name only (no Dashboard /
+ *                           Settings / app links). Clear CTA to finish setup.
+ *                           App routes already hard-redirect via (app)/layout.
  *
- * Trade-off: reading cookies makes this route dynamic instead of
- * statically cached. Verification is local (no Supabase call), so the
- * cost is microseconds — worth it to not show "Sign up" to members.
+ * Trade-off: reading cookies (+ onboarded check) makes this route dynamic.
+ * Verification is local JWT + one lightweight profile flag — worth it so
+ * mid-onboarding users never see "Go to Dashboard" after a browser restart.
  */
 import Link from "next/link";
 import { Dumbbell } from "lucide-react";
 import { APP_NAME } from "@/lib/utils/constants";
 import { getAuthUserId } from "@/lib/supabase/server";
+import { isUserOnboarded } from "@/lib/repositories/profile.repository";
 import { UserMenu } from "@/components/shared/user-menu";
 
 const APP_NAV_LINKS = [
@@ -39,6 +39,9 @@ const APP_NAV_LINKS = [
 export default async function LandingPage() {
   const userId = await getAuthUserId();
   const isLoggedIn = userId !== null;
+  // Incomplete = has a session but never finished the wizard (no is_onboarded).
+  const isOnboarded = userId ? await isUserOnboarded(userId) : false;
+  const needsOnboarding = isLoggedIn && !isOnboarded;
 
   return (
     <div className="w-full min-h-dvh bg-background flex flex-col">
@@ -51,8 +54,20 @@ export default async function LandingPage() {
           </span>
         </div>
 
-        {isLoggedIn ? (
-          /* Member navbar: app links + account menu (avatar / sign out) */
+        {needsOnboarding ? (
+          /* Mid-onboarding: brand only — no Dashboard/Settings/app chrome.
+             Sign out is still available so they can switch accounts. */
+          <div className="flex items-center gap-3">
+            <Link
+              href="/onboarding"
+              className="px-4 py-2 text-sm bg-primary text-background rounded-lg hover:bg-primary-hover transition-colors font-medium"
+            >
+              Complete setup
+            </Link>
+            <UserMenu />
+          </div>
+        ) : isLoggedIn ? (
+          /* Fully onboarded member navbar */
           <div className="flex items-center gap-2 sm:gap-3">
             <nav className="flex items-center gap-1 sm:gap-2">
               {APP_NAV_LINKS.map((link) => (
@@ -99,11 +114,19 @@ export default async function LandingPage() {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
           </span>
-          Built for Indian gym-goers
+          {needsOnboarding
+            ? "Setup incomplete"
+            : "Built for Indian gym-goers"}
         </div>
 
         <h1 className="text-4xl sm:text-5xl font-bold font-[family-name:var(--font-outfit)] leading-tight mb-4">
-          {isLoggedIn ? (
+          {needsOnboarding ? (
+            <>
+              Finish setting up
+              <br />
+              <span className="text-primary">your profile</span>
+            </>
+          ) : isLoggedIn ? (
             <>
               Welcome back.
               <br />
@@ -120,17 +143,36 @@ export default async function LandingPage() {
         </h1>
 
         <p className="text-text-secondary text-lg max-w-md mb-8">
-          {isLoggedIn
-            ? "Your dashboard has today's calories, macros, and workout — pick up where you left off."
-            : `${APP_NAME} understands Indian food, household units, and how you actually work out. No more guessing calories.`}
+          {needsOnboarding
+            ? "You're signed in, but onboarding isn't finished yet. Complete a few quick steps so we can build your calorie targets — then the dashboard unlocks."
+            : isLoggedIn
+              ? "Your dashboard has today's calories, macros, and workout — pick up where you left off."
+              : `${APP_NAME} understands Indian food, household units, and how you actually work out. No more guessing calories.`}
         </p>
 
         <Link
-          href={isLoggedIn ? "/dashboard" : "/signup"}
+          href={
+            needsOnboarding
+              ? "/onboarding"
+              : isLoggedIn
+                ? "/dashboard"
+                : "/signup"
+          }
           className="px-8 py-3 bg-primary text-background rounded-lg hover:bg-primary-hover transition-colors font-semibold text-lg shadow-lg"
         >
-          {isLoggedIn ? "Go to Dashboard →" : "Get started — it's free"}
+          {needsOnboarding
+            ? "Complete onboarding →"
+            : isLoggedIn
+              ? "Go to Dashboard →"
+              : "Get started — it's free"}
         </Link>
+
+        {needsOnboarding && (
+          <p className="mt-4 text-sm text-text-muted max-w-sm">
+            Dashboard, workout, nutrition, and settings stay locked until setup
+            is done. Your answers are saved as you go.
+          </p>
+        )}
       </main>
 
       {/* ── Footer ── */}

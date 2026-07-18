@@ -7,6 +7,13 @@
  * Appears after selecting an exercise from the browser.
  * Allows entering weight, reps, and Intensity (1-5) for each set.
  *
+ * USE PREVIOUS SET (set 2+):
+ * ──────────────────────────
+ * After set 1 is logged, a "Use previous set" button prefills the form
+ * from the last logged set (weight, reps, intensity, warmup). Fields stay
+ * fully editable so the user can bump weight (e.g. 60 → 62.5) while keeping
+ * the same reps/intensity. This is client-side only — no new API.
+ *
  * INTENSITY SCALE (was RPE 1-10):
  * ────────────────────────────────
  * The original RPE (Rate of Perceived Exertion) 1-10 scale is a sports
@@ -21,7 +28,8 @@
  * The engine uses it for session intensity calculations.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Copy } from "lucide-react";
 
 const INTENSITY_LABELS: Record<number, string> = {
   1: "Very Easy",
@@ -31,14 +39,23 @@ const INTENSITY_LABELS: Record<number, string> = {
   5: "Max Effort",
 };
 
+type LoggedSetDraft = {
+  weight: number;
+  reps: number;
+  rpe?: number;
+  isWarmup: boolean;
+};
+
 interface SetLoggerProps {
   exerciseName: string;
+  /** When the parent switches exercise, this resets to 0. */
+  exerciseId?: string;
   onLogSet: (data: {
     weight: number;
     reps: number;
     rpe?: number;
     isWarmup: boolean;
-  }) => void;
+  }) => void | Promise<void>;
   onDone: () => void;
   setsLogged: number;
   isPending: boolean;
@@ -46,6 +63,7 @@ interface SetLoggerProps {
 
 export function SetLogger({
   exerciseName,
+  exerciseId,
   onLogSet,
   onDone,
   setsLogged,
@@ -56,24 +74,63 @@ export function SetLogger({
   const [intensity, setIntensity] = useState<number | null>(null);
   const [isWarmup, setIsWarmup] = useState(false);
   const [showScale, setShowScale] = useState(false);
+  /** Last successfully logged set for THIS exercise (for "Use previous set"). */
+  const [previousSet, setPreviousSet] = useState<LoggedSetDraft | null>(null);
 
-  function handleLog() {
+  // New exercise → clear previous-set memory and form (except intentional parent remount).
+  useEffect(() => {
+    setPreviousSet(null);
+    setWeight("");
+    setReps("");
+    setIntensity(null);
+    setIsWarmup(false);
+  }, [exerciseId, exerciseName]);
+
+  async function handleLog() {
     const w = parseFloat(weight);
-    const r = parseInt(reps);
+    const r = parseInt(reps, 10);
     if (isNaN(w) || isNaN(r) || r <= 0) return;
 
-    onLogSet({
+    const draft: LoggedSetDraft = {
       weight: w,
       reps: r,
       rpe: intensity ?? undefined,
       isWarmup,
-    });
+    };
 
-    // Reset for next set — keep weight (likely same across sets)
+    try {
+      await Promise.resolve(onLogSet(draft));
+    } catch {
+      // Keep form values so the user can fix and retry.
+      return;
+    }
+
+    // Remember for the next set; clear reps/intensity so the form is ready
+    // for a fresh entry or a one-tap "Use previous set" fill.
+    setPreviousSet(draft);
     setReps("");
     setIntensity(null);
     setIsWarmup(false);
+    // Keep weight as a convenience default (user can still override or re-copy).
   }
+
+  /** Prefill form from last set — does not submit; user can tweak then Log. */
+  function handleUsePreviousSet() {
+    if (!previousSet) return;
+    setWeight(String(previousSet.weight));
+    setReps(String(previousSet.reps));
+    setIntensity(previousSet.rpe ?? null);
+    setIsWarmup(previousSet.isWarmup);
+  }
+
+  const canUsePrevious = setsLogged > 0 && previousSet !== null;
+  const previousSummary = previousSet
+    ? `${previousSet.weight} kg × ${previousSet.reps}` +
+      (previousSet.rpe != null
+        ? ` · intensity ${previousSet.rpe}`
+        : "") +
+      (previousSet.isWarmup ? " · warmup" : "")
+    : null;
 
   return (
     <div className="bg-surface rounded-2xl border border-border p-4 lg:p-6 space-y-4">
@@ -92,6 +149,26 @@ export function SetLogger({
           Done with this exercise
         </button>
       </div>
+
+      {/* Copy last set — only after set 1 exists for this exercise */}
+      {canUsePrevious && (
+        <div className="rounded-xl border border-border bg-background/60 p-3 space-y-2">
+          <button
+            type="button"
+            onClick={handleUsePreviousSet}
+            disabled={isPending}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg border border-primary/40 bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/15 disabled:opacity-50 transition-colors"
+          >
+            <Copy size={16} aria-hidden />
+            Use previous set
+          </button>
+          <p className="text-[11px] text-text-muted text-center">
+            Fills weight, reps & intensity from set {setsLogged}
+            {previousSummary ? ` (${previousSummary})` : ""}. Adjust weight if
+            you want, then log.
+          </p>
+        </div>
+      )}
 
       {/* Weight + Reps row */}
       <div className="grid grid-cols-2 gap-3">
@@ -190,4 +267,3 @@ export function SetLogger({
     </div>
   );
 }
-

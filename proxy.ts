@@ -20,8 +20,13 @@
  * 3. It checks: is the user logged in?
  * 4. Decision:
  *    - Not logged in + visiting /dashboard? → Redirect to /login
- *    - Logged in + visiting /login? → Redirect to /dashboard
+ *    - Logged in + visiting /login? → Redirect to /onboarding
+ *      (onboarding page sends already-complete users to /dashboard)
  *    - Otherwise → Let the request through
+ *
+ * Onboarding completeness (is_onboarded) cannot be checked here — Edge has
+ * no Prisma. App routes under (app)/layout redirect incomplete users to
+ * /onboarding; the landing page also hides app nav for those users.
  */
 import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
@@ -36,7 +41,10 @@ const PROTECTED_ROUTES = [
   "/onboarding",
 ];
 
-// Routes that logged-in users should NOT see (redirect to dashboard)
+// Routes that logged-in users should NOT see.
+// Send them to /onboarding (not /dashboard): incomplete users land on the
+// wizard; already-onboarded users are bounced to /dashboard by onboarding/page.
+// Edge proxy cannot query Prisma for is_onboarded, so this path is safe for both.
 const AUTH_ROUTES = ["/login", "/signup", "/confirmed"];
 
 export async function proxy(request: NextRequest) {
@@ -64,7 +72,7 @@ export async function proxy(request: NextRequest) {
 
   if (isAuthRoute && user) {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = "/onboarding";
     return NextResponse.redirect(url);
   }
 

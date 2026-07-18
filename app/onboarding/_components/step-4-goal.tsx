@@ -5,16 +5,17 @@
  * ═══════════════════════
  *
  * 1. User selects a body goal mode in plain language
- * 2. If losing/gaining → enters target weight
- * 3. Selects timeline via a slider (1-12 months)
- * 4. Live preview shows estimated weekly change and calorie target
- * 5. Safety warnings shown if timeline is too aggressive
+ * 2. If losing/gaining → enters target (goal) weight
+ * 3. After a valid goal weight, three timeline cards appear:
+ *    Minimum / Medium / Maximum — each with daily calories
+ * 4. User picks one plan (timeline + calorie budget)
+ * 5. Safety: options start at the engine’s minimum safe timeline
  *
- * LAYOUT (laptop): goal cards in a 2-column grid; target/timeline/preview
- * in a denser full-width panel so the wide shell feels complete.
+ * LAYOUT (laptop): goal cards in a 2-column grid; target weight full-width;
+ * timeline choices as selectable plan cards under the weight field.
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { cn } from "@/lib/utils/cn";
 import { step4Schema } from "@/lib/validators/onboarding.schema";
@@ -27,6 +28,21 @@ import {
 /** Schema bounds — used for range checks and placeholder hints. */
 const MIN_TARGET_WEIGHT_KG = 30;
 const MAX_TARGET_WEIGHT_KG = 300;
+const MAX_TIMELINE_MONTHS = 24;
+const DAYS_PER_MONTH = 30;
+
+type TimelineTierId = "minimum" | "medium" | "maximum";
+
+type TimelineOption = {
+  id: TimelineTierId;
+  label: string;
+  subtitle: string;
+  months: number;
+  targetCalories: number;
+  weeklyChangeKg: number;
+  estimatedWeeks: number;
+  isSafe: boolean;
+};
 
 /**
  * Parse a number field without clamping.
@@ -48,6 +64,144 @@ function targetWeightError(value: number | undefined): string | undefined {
   });
   if (validation.success) return undefined;
   return validation.error.flatten().fieldErrors.targetWeightKg?.[0];
+}
+
+function ageFromDob(dobStr: string | undefined): number {
+  if (!dobStr) return 25;
+  const today = new Date();
+  const birth = new Date(dobStr);
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
+/**
+ * Shortest safe timeline in whole months for this weight change.
+ * Uses the same engine guards as the single-timeline calculator.
+ */
+function minSafeTimelineMonths(input: {
+  currentWeightKg: number;
+  targetWeightKg: number;
+  wantsMuscle: boolean;
+  tdee: number;
+  bmr: number;
+  sex: "MALE" | "FEMALE";
+}): { months: number; unreachable: boolean; message?: string } {
+  const {
+    currentWeightKg,
+    targetWeightKg,
+    wantsMuscle,
+    tdee,
+    bmr,
+    sex,
+  } = input;
+  const delta = currentWeightKg - targetWeightKg;
+
+  if (Math.abs(delta) < 0.5) {
+    return { months: 1, unreachable: false };
+  }
+
+  // Gain: engine safety is ≤ 0.5 kg/week
+  if (delta < 0) {
+    const weightToGain = Math.abs(delta);
+    const minDays = Math.ceil((weightToGain / 0.5) * 7);
+    const months = Math.min(
+      MAX_TIMELINE_MONTHS,
+      Math.max(1, Math.ceil(minDays / DAYS_PER_MONTH))
+    );
+    return { months, unreachable: false };
+  }
+
+  // Loss: probe a 1-week plan — if unsafe, engine returns safeTimelineDays
+  const probe = calculateGoalFromTimeline({
+    currentWeightKg,
+    targetWeightKg,
+    timelineDays: 7,
+    wantsMuscle,
+    tdee,
+    bmr,
+    sex,
+  });
+
+  if (probe.isSafe) {
+    return { months: 1, unreachable: false };
+  }
+
+  if (probe.safeTimelineDays == null || !Number.isFinite(probe.safeTimelineDays)) {
+    return {
+      months: MAX_TIMELINE_MONTHS,
+      unreachable: true,
+      message: probe.warningMessage,
+    };
+  }
+
+  const months = Math.min(
+    MAX_TIMELINE_MONTHS,
+    Math.max(1, Math.ceil(probe.safeTimelineDays / DAYS_PER_MONTH))
+  );
+  return { months, unreachable: false, message: probe.warningMessage };
+}
+
+/** Build Minimum / Medium / Maximum month options with calorie previews. */
+function buildTimelineOptions(input: {
+  currentWeightKg: number;
+  targetWeightKg: number;
+  wantsMuscle: boolean;
+  tdee: number;
+  bmr: number;
+  sex: "MALE" | "FEMALE";
+}): { options: TimelineOption[]; unreachableMessage?: string } {
+  const min = minSafeTimelineMonths(input);
+  if (min.unreachable) {
+    return { options: [], unreachableMessage: min.message };
+  }
+
+  const monthCandidates = [
+    min.months,
+    Math.min(MAX_TIMELINE_MONTHS, min.months + 1),
+    Math.min(MAX_TIMELINE_MONTHS, min.months + 2),
+  ];
+  // De-dupe if we hit the 24-month ceiling
+  const uniqueMonths = [...new Set(monthCandidates)];
+
+  const tiers: { id: TimelineTierId; label: string; subtitle: string }[] = [
+    {
+      id: "minimum",
+      label: "Minimum",
+      subtitle: "Fastest safe pace · lower daily calories",
+    },
+    {
+      id: "medium",
+      label: "Medium",
+      subtitle: "Balanced pace · moderate daily calories",
+    },
+    {
+      id: "maximum",
+      label: "Maximum",
+      subtitle: "Easiest pace · higher daily calories",
+    },
+  ];
+
+  const options: TimelineOption[] = uniqueMonths.map((months, i) => {
+    const tier = tiers[Math.min(i, tiers.length - 1)];
+    const plan = calculateGoalFromTimeline({
+      ...input,
+      timelineDays: months * DAYS_PER_MONTH,
+    });
+    return {
+      id: tier.id,
+      label: tier.label,
+      subtitle: tier.subtitle,
+      months,
+      targetCalories: plan.targetCalories,
+      weeklyChangeKg: plan.weeklyChangeKg,
+      estimatedWeeks: plan.estimatedWeeks,
+      isSafe: plan.isSafe,
+    };
+  }).filter((o) => o.isSafe);
+
+  return { options };
 }
 
 // ── Body Goal Modes (plain language, no jargon) ─────────
@@ -110,8 +264,9 @@ export function Step4Goal() {
       ? String(formData.targetWeightKg)
       : ""
   );
-  const [timeline, setTimeline] = useState<number>(
-    () => formData.timelineMonths ?? 4
+  /** Selected plan months — undefined until user picks a timeline card. */
+  const [selectedMonths, setSelectedMonths] = useState<number | undefined>(
+    () => formData.timelineMonths
   );
   const [targetWeightFieldError, setTargetWeightFieldError] = useState<
     string | undefined
@@ -126,6 +281,10 @@ export function Step4Goal() {
     targetWeightNum !== undefined &&
     targetWeightNum >= MIN_TARGET_WEIGHT_KG &&
     targetWeightNum <= MAX_TARGET_WEIGHT_KG;
+  const targetWeightReady =
+    targetWeightInRange &&
+    targetWeightNum !== currentWeight &&
+    !targetWeightFieldError;
 
   function handleTargetWeightChange(raw: string) {
     // Keep the raw string so the user can clear, retype, and enter intermediates.
@@ -134,7 +293,8 @@ export function Step4Goal() {
 
     if (n === undefined) {
       setTargetWeightFieldError(undefined);
-      updateFormData({ targetWeightKg: undefined });
+      setSelectedMonths(undefined);
+      updateFormData({ targetWeightKg: undefined, timelineMonths: undefined });
       return;
     }
 
@@ -145,56 +305,60 @@ export function Step4Goal() {
           ? "Target weight must differ from your current weight"
           : undefined)
     );
-    updateFormData({ targetWeightKg: n });
+    // Changing goal weight invalidates the previous timeline choice.
+    setSelectedMonths(undefined);
+    updateFormData({ targetWeightKg: n, timelineMonths: undefined });
   }
 
-  const preview = useMemo(() => {
-    // Only compute plan preview when target is in a realistic schema range
-    if (
-      !selectedGoalObj ||
-      !needsTarget ||
-      !targetWeightInRange ||
-      targetWeightNum === undefined
-    ) {
-      return null;
-    }
-    if (selectedMode === "maintain") return null;
-
+  const engineContext = useMemo(() => {
     const sex = formData.sex ?? "MALE";
     const heightCm = formData.heightCm ?? 170;
-    const dobStr = formData.dateOfBirth;
-    let age = 25;
-    if (dobStr) {
-      const today = new Date();
-      const birth = new Date(dobStr);
-      age = today.getFullYear() - birth.getFullYear();
-      const m = today.getMonth() - birth.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-    }
+    const age = ageFromDob(formData.dateOfBirth);
     const activityLevel = formData.activityLevel ?? "MODERATE";
-
     const bmr = calculateBMR(sex, currentWeight, heightCm, age);
     const tdee = calculateTDEE(bmr, activityLevel);
+    return {
+      sex: sex as "MALE" | "FEMALE",
+      bmr,
+      tdee,
+      wantsMuscle: selectedMode === "lean-muscle",
+    };
+  }, [formData.sex, formData.heightCm, formData.dateOfBirth, formData.activityLevel, currentWeight, selectedMode]);
 
-    return calculateGoalFromTimeline({
+  const { options: timelineOptions, unreachableMessage } = useMemo(() => {
+    if (!needsTarget || !targetWeightReady || targetWeightNum === undefined) {
+      return { options: [] as TimelineOption[] };
+    }
+    return buildTimelineOptions({
       currentWeightKg: currentWeight,
       targetWeightKg: targetWeightNum,
-      timelineDays: timeline * 30,
-      wantsMuscle: selectedMode === "lean-muscle",
-      tdee,
-      bmr,
-      sex,
+      wantsMuscle: engineContext.wantsMuscle,
+      tdee: engineContext.tdee,
+      bmr: engineContext.bmr,
+      sex: engineContext.sex,
     });
   }, [
-    selectedGoalObj,
-    targetWeightNum,
-    targetWeightInRange,
-    timeline,
-    currentWeight,
-    formData,
-    selectedMode,
     needsTarget,
+    targetWeightReady,
+    targetWeightNum,
+    currentWeight,
+    engineContext,
   ]);
+
+  // If restored months no longer match available options, clear selection.
+  useEffect(() => {
+    if (selectedMonths === undefined) return;
+    if (timelineOptions.length === 0) return;
+    const stillValid = timelineOptions.some((o) => o.months === selectedMonths);
+    if (!stillValid) {
+      setSelectedMonths(undefined);
+      updateFormData({ timelineMonths: undefined });
+    }
+  }, [timelineOptions, selectedMonths, updateFormData]);
+
+  const selectedOption = timelineOptions.find(
+    (o) => o.months === selectedMonths
+  );
 
   function handleModeSelect(modeId: string) {
     setSelectedMode(modeId);
@@ -205,6 +369,7 @@ export function Step4Goal() {
     if (modeId === "maintain") {
       setTargetWeight(currentWeight.toString());
       setTargetWeightFieldError(undefined);
+      setSelectedMonths(undefined);
       updateFormData({
         goal: "MAINTAIN",
         targetWeightKg: currentWeight,
@@ -215,22 +380,24 @@ export function Step4Goal() {
       targetWeight === "" ||
       targetWeight === String(currentWeight)
     ) {
-      // First time opening a goal that needs a target: start at schema min
-      // (unless user already set a different target earlier)
+      // First time opening a goal that needs a target: start empty so the user
+      // deliberately types their goal weight before timeline options appear.
       const hasCustomTarget =
         formData.targetWeightKg !== undefined &&
         formData.targetWeightKg !== currentWeight &&
         formData.goal !== "MAINTAIN";
       if (!hasCustomTarget) {
-        setTargetWeight(String(MIN_TARGET_WEIGHT_KG));
-        setTargetWeightFieldError(
-          MIN_TARGET_WEIGHT_KG === currentWeight
-            ? "Target weight must differ from your current weight"
-            : undefined
-        );
-        updateFormData({ targetWeightKg: MIN_TARGET_WEIGHT_KG });
+        setTargetWeight("");
+        setTargetWeightFieldError(undefined);
+        setSelectedMonths(undefined);
+        updateFormData({ targetWeightKg: undefined, timelineMonths: undefined });
       }
     }
+  }
+
+  function handleTimelineSelect(option: TimelineOption) {
+    setSelectedMonths(option.months);
+    updateFormData({ timelineMonths: option.months });
   }
 
   function handleNext() {
@@ -252,9 +419,12 @@ export function Step4Goal() {
         );
         return;
       }
+      if (selectedMonths === undefined) {
+        return;
+      }
       updateFormData({
         targetWeightKg: targetWeightNum,
-        timelineMonths: timeline,
+        timelineMonths: selectedMonths,
       });
     }
     nextStep();
@@ -265,30 +435,26 @@ export function Step4Goal() {
   // The dashboard then shows the goal type without a progress bar.
   function handleSkipTarget() {
     if (!selectedGoalObj) return;
+    setSelectedMonths(undefined);
     updateFormData({ targetWeightKg: undefined, timelineMonths: undefined });
     nextStep();
   }
 
-  // An unsafe plan must not be submittable. The warning panel tells the user to
-  // extend the timeline; letting Continue through anyway would save a goal date
-  // the (safely clamped) calorie target cannot possibly hit.
-  // Also block when target weight is missing, out of range, or equals current.
+  // Must pick a goal; if a target is required, weight + a timeline card are required.
   const canContinue =
     selectedMode !== "" &&
-    (!needsTarget ||
-      (targetWeightInRange &&
-        targetWeightNum !== currentWeight &&
-        !targetWeightFieldError &&
-        preview?.isSafe !== false));
+    (selectedMode === "maintain" ||
+      (targetWeightReady &&
+        selectedMonths !== undefined &&
+        selectedOption?.isSafe === true));
 
-  // Once a goal mode is chosen, the user may always skip setting a target.
   const canSkipTarget = selectedMode !== "";
 
   return (
     <div className="space-y-5 lg:space-y-6">
       <p className="text-sm text-text-muted">
-        Choose how you want to transform your body. We will calculate your
-        exact calorie and macro targets based on your choice.
+        Choose how you want to transform your body. Set your goal weight, then
+        pick a timeline — we&apos;ll show the daily calories for each option.
       </p>
 
       {/* Goal cards — 2 columns on laptop */}
@@ -334,132 +500,163 @@ export function Step4Goal() {
         ))}
       </div>
 
-      {/* Target Weight + Timeline */}
+      {/* 1) Goal weight — only after a non-maintain mode is chosen */}
       {needsTarget && (
         <div className="space-y-4 pt-4 border-t border-border">
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-6">
-            <div>
-              <label
-                htmlFor="target-weight"
-                className="block text-sm font-medium text-text-secondary mb-1"
-              >
-                Target Weight (kg)
-              </label>
-              <div className="relative">
-                <input
-                  id="target-weight"
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  min={MIN_TARGET_WEIGHT_KG}
-                  max={MAX_TARGET_WEIGHT_KG}
-                  value={targetWeight}
-                  onChange={(e) => handleTargetWeightChange(e.target.value)}
-                  placeholder={`${MIN_TARGET_WEIGHT_KG}–${MAX_TARGET_WEIGHT_KG}`}
-                  className={cn(
-                    "w-full p-3 pr-12 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",
-                    "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary",
-                    "transition-all",
-                    targetWeightFieldError
-                      ? "border-red-500"
-                      : "border-border"
-                  )}
-                />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted text-sm">
-                  kg
-                </span>
-              </div>
-              {targetWeightFieldError ? (
-                <p className="mt-1 text-sm text-red-400">
-                  {targetWeightFieldError}
-                </p>
-              ) : (
-                <p className="text-xs text-text-muted mt-1">
-                  Current weight: {currentWeight} kg
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label
-                htmlFor="timeline-slider"
-                className="block text-sm font-medium text-text-secondary mb-1"
-              >
-                Timeline:{" "}
-                <span className="text-primary font-bold">
-                  {timeline} {timeline === 1 ? "month" : "months"}
-                </span>
-              </label>
+          <div>
+            <label
+              htmlFor="target-weight"
+              className="block text-sm font-medium text-text-secondary mb-1"
+            >
+              Goal weight (kg)
+            </label>
+            <div className="relative max-w-md">
               <input
-                id="timeline-slider"
-                type="range"
-                min={1}
-                max={12}
-                value={timeline}
-                onChange={(e) => setTimeline(parseInt(e.target.value))}
-                className="w-full accent-primary mt-3"
+                id="target-weight"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                min={MIN_TARGET_WEIGHT_KG}
+                max={MAX_TARGET_WEIGHT_KG}
+                value={targetWeight}
+                onChange={(e) => handleTargetWeightChange(e.target.value)}
+                placeholder={`${MIN_TARGET_WEIGHT_KG}–${MAX_TARGET_WEIGHT_KG}`}
+                className={cn(
+                  "w-full p-3 pr-12 bg-background border rounded-xl text-text-primary placeholder:text-text-muted",
+                  "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary",
+                  "transition-all",
+                  targetWeightFieldError ? "border-red-500" : "border-border"
+                )}
               />
-              <div className="flex justify-between text-xs text-text-muted mt-1">
-                <span>1 month</span>
-                <span>6 months</span>
-                <span>12 months</span>
-              </div>
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted text-sm">
+                kg
+              </span>
             </div>
+            {targetWeightFieldError ? (
+              <p className="mt-1 text-sm text-red-400">
+                {targetWeightFieldError}
+              </p>
+            ) : (
+              <p className="text-xs text-text-muted mt-1">
+                Current weight: {currentWeight} kg
+              </p>
+            )}
           </div>
 
-          {preview && targetWeightInRange && (
-            <div
-              className={cn(
-                "p-4 lg:p-5 rounded-xl border",
-                preview.isSafe
-                  ? "bg-primary/5 border-primary/30"
-                  : "bg-danger/5 border-danger/30"
-              )}
-            >
-              {preview.isSafe ? (
-                <>
-                  <p className="text-sm font-semibold text-primary">
-                    ✅ Your Plan
-                  </p>
-                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm text-text-secondary">
-                    <div className="rounded-lg bg-background/50 border border-border/60 p-3">
-                      <p className="text-xs text-text-muted mb-0.5">
-                        Daily calories
-                      </p>
-                      <p className="font-bold text-text-primary">
-                        {preview.targetCalories.toLocaleString()} kcal
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-background/50 border border-border/60 p-3">
-                      <p className="text-xs text-text-muted mb-0.5">
-                        Expected change
-                      </p>
-                      <p className="font-bold text-text-primary">
-                        {preview.weeklyChangeKg.toFixed(2)} kg/week
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-background/50 border border-border/60 p-3">
-                      <p className="text-xs text-text-muted mb-0.5">
-                        Reach goal in
-                      </p>
-                      <p className="font-bold text-text-primary">
-                        ~{Math.round(preview.estimatedWeeks)} weeks
-                      </p>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
+          {/* 2) Timeline choices — only after a valid goal weight */}
+          {targetWeightReady && (
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm font-medium text-text-secondary">
+                  Choose your timeline
+                </p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Each plan shows how long it takes and how many calories you
+                  should eat per day. Pick the one that fits your lifestyle.
+                </p>
+              </div>
+
+              {unreachableMessage && timelineOptions.length === 0 ? (
+                <div className="p-4 rounded-xl border border-danger/30 bg-danger/5">
                   <p className="text-sm font-semibold text-danger">
-                    ⚠️ Timeline Too Aggressive
+                    ⚠️ This goal isn&apos;t reachable safely on diet alone
                   </p>
                   <p className="text-sm text-text-secondary mt-1">
-                    {preview.warningMessage}
+                    {unreachableMessage}
                   </p>
-                  <p className="text-xs text-text-muted mt-2">
-                    Increase the timeline slider to get a safe plan.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {timelineOptions.map((option) => {
+                    const isSelected = selectedMonths === option.months;
+                    // Engine returns a positive weeklyChangeKg for both loss and gain
+                    // (magnitude only); direction comes from goal vs current weight.
+                    const isGain =
+                      targetWeightNum !== undefined &&
+                      targetWeightNum > currentWeight;
+                    const weeklyAbs = Math.abs(option.weeklyChangeKg);
+                    const weeklyLabel =
+                      weeklyAbs < 0.005
+                        ? "0 kg/week"
+                        : `${isGain ? "+" : "−"}${weeklyAbs.toFixed(2)} kg/week`;
+                    return (
+                      <button
+                        key={`${option.id}-${option.months}`}
+                        type="button"
+                        id={`onboarding-timeline-${option.id}`}
+                        onClick={() => handleTimelineSelect(option)}
+                        className={cn(
+                          "w-full p-4 rounded-xl border-2 text-left transition-all duration-200",
+                          isSelected
+                            ? "border-primary bg-primary/10 ring-1 ring-primary/40"
+                            : "border-border bg-background hover:border-text-muted"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p
+                            className={cn(
+                              "text-sm font-semibold",
+                              isSelected ? "text-primary" : "text-text-primary"
+                            )}
+                          >
+                            {option.label}
+                          </p>
+                          {isSelected && (
+                            <span className="text-xs font-medium text-primary">
+                              Selected
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-2 text-2xl font-bold text-text-primary tabular-nums">
+                          {option.months}{" "}
+                          <span className="text-base font-semibold text-text-secondary">
+                            {option.months === 1 ? "month" : "months"}
+                          </span>
+                        </p>
+                        <div className="mt-3 rounded-lg bg-background/80 border border-border/60 p-3">
+                          <p className="text-xs text-text-muted">
+                            Daily calories
+                          </p>
+                          <p className="text-lg font-bold text-primary tabular-nums">
+                            {option.targetCalories.toLocaleString()}{" "}
+                            <span className="text-sm font-semibold">kcal</span>
+                          </p>
+                        </div>
+                        <p className="mt-2 text-xs text-text-muted">
+                          {weeklyLabel} · ~
+                          {Math.round(option.estimatedWeeks)} weeks
+                        </p>
+                        <p className="mt-1 text-xs text-text-muted/80">
+                          {option.subtitle}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {selectedOption && (
+                <div className="p-4 rounded-xl border border-primary/30 bg-primary/5">
+                  <p className="text-sm font-semibold text-primary">
+                    ✅ Your plan
                   </p>
-                </>
+                  <p className="text-sm text-text-secondary mt-1">
+                    Reach{" "}
+                    <span className="font-semibold text-text-primary">
+                      {targetWeightNum} kg
+                    </span>{" "}
+                    in about{" "}
+                    <span className="font-semibold text-text-primary">
+                      {selectedOption.months}{" "}
+                      {selectedOption.months === 1 ? "month" : "months"}
+                    </span>{" "}
+                    while eating{" "}
+                    <span className="font-semibold text-text-primary">
+                      {selectedOption.targetCalories.toLocaleString()} kcal
+                    </span>{" "}
+                    per day.
+                  </p>
+                </div>
               )}
             </div>
           )}

@@ -130,22 +130,22 @@ export default function WorkoutPage() {
     rpe?: number;
     isWarmup: boolean;
   }) {
-    if (!activeSessionId || !activeExercise) return;
-    try {
-      await logSet.mutateAsync({
-        sessionId: activeSessionId,
-        exerciseId: activeExercise.id,
-        setNumber: setsLogged + 1,
-        weight: data.weight,
-        reps: data.reps,
-        rpe: data.rpe,
-        isWarmup: data.isWarmup,
-      });
-      setSetsLogged((prev) => prev + 1);
-      setTotalSetsInSession((prev) => prev + 1);
-    } catch {
-      // Error handled by TanStack Query
+    if (!activeSessionId || !activeExercise) {
+      throw new Error("No active session");
     }
+    // Rethrow on failure so SetLogger keeps the form (and does not treat this
+    // as a successful "previous set" for the copy button).
+    await logSet.mutateAsync({
+      sessionId: activeSessionId,
+      exerciseId: activeExercise.id,
+      setNumber: setsLogged + 1,
+      weight: data.weight,
+      reps: data.reps,
+      rpe: data.rpe,
+      isWarmup: data.isWarmup,
+    });
+    setSetsLogged((prev) => prev + 1);
+    setTotalSetsInSession((prev) => prev + 1);
   }
 
   // Called when user taps "Finish Workout" button
@@ -367,6 +367,7 @@ export default function WorkoutPage() {
           <div className="space-y-4 lg:col-span-7">
             {activeExercise ? (
               <SetLogger
+                exerciseId={activeExercise.id}
                 exerciseName={activeExercise.name}
                 setsLogged={setsLogged}
                 isPending={logSet.isPending}

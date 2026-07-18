@@ -18,7 +18,10 @@
  */
 export function safeRedirectPath(
   raw: string | null | undefined,
-  fallback = "/dashboard"
+  // /onboarding: incomplete users stay in the wizard; already-onboarded users
+  // are immediately redirected to /dashboard by app/onboarding/page.tsx.
+  // Prefer this over /dashboard so mid-setup users never flash the app shell.
+  fallback = "/onboarding"
 ): string {
   if (!raw) return fallback;
   if (!raw.startsWith("/")) return fallback; // must be an absolute path

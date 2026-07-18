@@ -14,33 +14,33 @@ describe("safeRedirectPath", () => {
   });
 
   it("falls back when empty or missing", () => {
-    expect(safeRedirectPath(null)).toBe("/dashboard");
-    expect(safeRedirectPath(undefined)).toBe("/dashboard");
-    expect(safeRedirectPath("")).toBe("/dashboard");
+    expect(safeRedirectPath(null)).toBe("/onboarding");
+    expect(safeRedirectPath(undefined)).toBe("/onboarding");
+    expect(safeRedirectPath("")).toBe("/onboarding");
   });
 
   it("rejects protocol-relative escapes (//evil.com)", () => {
-    expect(safeRedirectPath("//evil.com")).toBe("/dashboard");
-    expect(safeRedirectPath("//evil.com/phish")).toBe("/dashboard");
+    expect(safeRedirectPath("//evil.com")).toBe("/onboarding");
+    expect(safeRedirectPath("//evil.com/phish")).toBe("/onboarding");
   });
 
   it("rejects absolute URLs", () => {
-    expect(safeRedirectPath("https://evil.com")).toBe("/dashboard");
-    expect(safeRedirectPath("http://evil.com/login")).toBe("/dashboard");
+    expect(safeRedirectPath("https://evil.com")).toBe("/onboarding");
+    expect(safeRedirectPath("http://evil.com/login")).toBe("/onboarding");
   });
 
   it("rejects backslash normalization quirks (/\\evil.com)", () => {
-    expect(safeRedirectPath("/\\evil.com")).toBe("/dashboard");
-    expect(safeRedirectPath("/\\/evil.com")).toBe("/dashboard");
+    expect(safeRedirectPath("/\\evil.com")).toBe("/onboarding");
+    expect(safeRedirectPath("/\\/evil.com")).toBe("/onboarding");
   });
 
   it("rejects scheme smuggling anywhere in the value", () => {
-    expect(safeRedirectPath("javascript:alert(1)")).toBe("/dashboard");
+    expect(safeRedirectPath("javascript:alert(1)")).toBe("/onboarding");
     // Strict by design: even a nested URL inside the query is rejected.
     // No legitimate FitLog redirect target carries "://" — and a nested
     // URL is exactly what a second-hop open redirect looks like.
     expect(safeRedirectPath("/redirect?to=https://evil.com")).toBe(
-      "/dashboard"
+      "/onboarding"
     );
   });
 
