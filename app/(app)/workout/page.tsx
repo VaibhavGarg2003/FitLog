@@ -79,6 +79,9 @@ export default function WorkoutPage() {
   const [showFinish, setShowFinish] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
   const [duration, setDuration] = useState("45");
+  // Two-step confirm for cancelling a workout that already has logged sets,
+  // so a mis-tap can't throw away a session in progress.
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   // After a successful finish, show a completion screen instead of blank page
   const [workoutCompleted, setWorkoutCompleted] = useState<{
@@ -169,8 +172,16 @@ export default function WorkoutPage() {
     setSetsLogged(0);
     setShowFinish(false);
     setFinishError(null);
+    setConfirmingCancel(false);
     setPlannedExercises(null);
     setDoneExerciseIds(new Set());
+  }
+
+  // Cancel from anywhere in the flow. If sets are already logged, ask first;
+  // otherwise back out immediately (nothing to lose).
+  function handleRequestCancel() {
+    if (totalSetsInSession > 0) setConfirmingCancel(true);
+    else handleCancelSession();
   }
 
   async function handleFinish() {
@@ -384,12 +395,35 @@ export default function WorkoutPage() {
       {/* Active Session — split logger | checklist on laptop */}
       {activeSessionId && onSessionDate ? (
         <div className="space-y-4 lg:space-y-5">
-          {/* Back out of a session you didn't mean to start (initial stage only —
-              the logger and finish screens have their own Done/Back controls). */}
-          {!activeExercise && !showFinish && (
+          {/* Cancel the whole workout — available at EVERY stage (logging,
+              finishing, between exercises). Confirms first if sets exist so a
+              mis-tap can't discard progress. */}
+          {confirmingCancel ? (
+            <div className="flex flex-wrap items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
+              <span className="text-sm text-text-primary">
+                Discard this workout and start over?
+              </span>
+              <div className="flex items-center gap-3 ml-auto">
+                <button
+                  type="button"
+                  onClick={handleCancelSession}
+                  className="text-sm font-semibold text-red-400 hover:text-red-300"
+                >
+                  Discard workout
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingCancel(false)}
+                  className="text-sm text-text-muted hover:text-text-primary"
+                >
+                  Keep going
+                </button>
+              </div>
+            </div>
+          ) : (
             <button
               type="button"
-              onClick={handleCancelSession}
+              onClick={handleRequestCancel}
               className="text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
               ← Cancel workout
