@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { step2Schema } from "@/lib/validators/onboarding.schema";
+import { useDebounce } from "@/lib/hooks/use-debounce";
 import { cn } from "@/lib/utils/cn";
+
+/** Wait this long after weight/height stop changing before showing BMI. */
+const BMI_DEBOUNCE_MS = 2000;
 
 /** Schema bounds — used for BMI preview and placeholder hints. */
 const MIN_WEIGHT_KG = 30;
@@ -104,19 +108,30 @@ export function Step2Body() {
   const weightNum = parseOptionalNumber(weightInput);
   const heightNum = parseOptionalNumber(heightInput);
 
-  // Only show BMI when both values are within valid schema ranges
-  const weightValid =
-    weightNum !== undefined &&
-    weightNum >= MIN_WEIGHT_KG &&
-    weightNum <= MAX_WEIGHT_KG;
-  const heightValid =
-    heightNum !== undefined &&
-    heightNum >= MIN_HEIGHT_CM &&
-    heightNum <= MAX_HEIGHT_CM;
+  // Inputs update instantly; BMI waits until typing / spin-buttons settle.
+  const debouncedWeight = useDebounce(weightNum, BMI_DEBOUNCE_MS);
+  const debouncedHeight = useDebounce(heightNum, BMI_DEBOUNCE_MS);
 
+  function inWeightRange(n: number | undefined): n is number {
+    return n !== undefined && n >= MIN_WEIGHT_KG && n <= MAX_WEIGHT_KG;
+  }
+  function inHeightRange(n: number | undefined): n is number {
+    return n !== undefined && n >= MIN_HEIGHT_CM && n <= MAX_HEIGHT_CM;
+  }
+
+  const liveReady = inWeightRange(weightNum) && inHeightRange(heightNum);
+  const debouncedReady =
+    inWeightRange(debouncedWeight) && inHeightRange(debouncedHeight);
+
+  // True while typing / spinner clicks still settling (2s after last change).
+  const isBmiPending =
+    liveReady &&
+    (debouncedWeight !== weightNum || debouncedHeight !== heightNum);
+
+  // Only publish BMI after values settle; never flash mid-edit numbers.
   const bmi =
-    weightValid && heightValid
-      ? weightNum / (heightNum / 100) ** 2
+    liveReady && debouncedReady && !isBmiPending
+      ? debouncedWeight / (debouncedHeight / 100) ** 2
       : null;
 
   const bmiLabel =
@@ -129,6 +144,9 @@ export function Step2Body() {
           : bmi < 30
             ? "Overweight"
             : "Obese";
+
+  // Card appears when both fields are in range (skeleton until debounce settles).
+  const showBmiCard = liveReady;
 
   return (
     <div className="space-y-6 lg:space-y-8">
@@ -203,18 +221,30 @@ export function Step2Body() {
           )}
         </div>
 
-        {/* BMI Preview — full width under inputs on laptop; only when in-range */}
-        {bmi !== null && (
+        {/* BMI Preview — debounced 2s after last weight/height change */}
+        {showBmiCard && (
           <div className="sm:col-span-2 p-4 lg:p-5 bg-background rounded-xl border border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <p className="text-sm text-text-muted">Your BMI</p>
-              <p className="text-2xl lg:text-3xl font-bold text-text-primary">
-                {bmi.toFixed(1)}
-              </p>
-            </div>
-            <p className="text-sm font-medium text-primary sm:text-right">
-              {bmiLabel}
-            </p>
+            {isBmiPending || bmi === null ? (
+              <>
+                <div className="space-y-2 animate-pulse" aria-busy="true" aria-label="Calculating BMI">
+                  <div className="h-4 w-16 rounded bg-surface-hover" />
+                  <div className="h-8 w-20 rounded bg-surface-hover" />
+                </div>
+                <div className="h-4 w-24 rounded bg-surface-hover animate-pulse sm:self-center" />
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="text-sm text-text-muted">Your BMI</p>
+                  <p className="text-2xl lg:text-3xl font-bold text-text-primary">
+                    {bmi.toFixed(1)}
+                  </p>
+                </div>
+                <p className="text-sm font-medium text-primary sm:text-right">
+                  {bmiLabel}
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>
