@@ -66,6 +66,34 @@ export function useSaveTemplate() {
   });
 }
 
+export function useUpdateTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      templateId: string;
+      name: string;
+      exercises: TemplateExercise[];
+    }) => {
+      const { templateId, ...payload } = data;
+      const res = await fetch(
+        `/api/templates/${encodeURIComponent(templateId)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update template");
+      return json;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY });
+    },
+  });
+}
+
 export function useDeleteTemplate() {
   const queryClient = useQueryClient();
 

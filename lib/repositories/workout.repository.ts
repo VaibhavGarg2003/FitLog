@@ -200,6 +200,53 @@ export async function getWorkoutBurnByDate(userId: string, date: string) {
 }
 
 /**
+ * Owner-scoped set update. The relation filter walks set → session → user in
+ * ONE query: a set that isn't the caller's (or belongs to a finished session)
+ * updates zero rows → the service answers 404/validation, never "forbidden".
+ * IN_PROGRESS only: completed sessions already have calorie burns computed
+ * from their sets — editing those would silently invalidate the stored math.
+ */
+export async function updateSetForUser(
+  setId: string,
+  sessionId: string,
+  userId: string,
+  data: {
+    weight?: number;
+    reps?: number;
+    rpe?: number | null;
+    isWarmup?: boolean;
+  }
+) {
+  const result = await prisma.exerciseSet.updateMany({
+    where: {
+      id: setId,
+      sessionId,
+      session: { userId, status: "IN_PROGRESS" },
+    },
+    data,
+  });
+  return result.count > 0;
+}
+
+/**
+ * Owner-scoped set delete (same relation-filter pattern as update above).
+ */
+export async function deleteSetForUser(
+  setId: string,
+  sessionId: string,
+  userId: string
+) {
+  const result = await prisma.exerciseSet.deleteMany({
+    where: {
+      id: setId,
+      sessionId,
+      session: { userId, status: "IN_PROGRESS" },
+    },
+  });
+  return result.count > 0;
+}
+
+/**
  * Get completed sessions from the last N days (newest first).
  * Used by the Progress page's "Recent Workouts" card, so freshly logged
  * workouts show up alongside weight tracking.

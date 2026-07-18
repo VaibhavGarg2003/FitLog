@@ -1,18 +1,99 @@
 /**
- * POST /api/workout/[id]/sets — Add a set to a session
- * PUT  /api/workout/[id]/sets — Finish session (calculates burn)
+ * POST   /api/workout/[id]/sets — Add a set to a session
+ * PUT    /api/workout/[id]/sets — Finish session (calculates burn)
+ * PATCH  /api/workout/[id]/sets — Edit one logged set ({ setId, ...changes })
+ * DELETE /api/workout/[id]/sets — Remove one logged set ({ setId })
+ *
+ * PATCH/DELETE work only while the session is IN_PROGRESS — completed
+ * sessions have calorie burns computed from their sets, so those are frozen.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthUserId } from "@/lib/supabase/server";
-import { logSet, finishSession } from "@/lib/services/workout.service";
+import {
+  logSet,
+  finishSession,
+  editSet,
+  removeSet,
+} from "@/lib/services/workout.service";
 import { getProfileByUserId } from "@/lib/repositories/profile.repository";
 import {
   logSetSchema,
   finishSessionSchema,
+  updateSetSchema,
+  deleteSetSchema,
 } from "@/lib/validators/api.schema";
 import { handleRouteError } from "@/lib/utils/errors";
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const userId = await getAuthUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: sessionId } = await params;
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const parsed = updateSetSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: "Invalid set data",
+          details: z.flattenError(parsed.error).fieldErrors,
+        },
+        { status: 400 }
+      );
+    }
+
+    const { setId, ...changes } = parsed.data;
+    const result = await editSet(sessionId, userId, setId, changes);
+    return NextResponse.json(result);
+  } catch (error) {
+    return handleRouteError(error, "PATCH /api/workout/[id]/sets");
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const userId = await getAuthUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: sessionId } = await params;
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const parsed = deleteSetSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "setId required" }, { status: 400 });
+    }
+
+    const result = await removeSet(sessionId, userId, parsed.data.setId);
+    return NextResponse.json(result);
+  } catch (error) {
+    return handleRouteError(error, "DELETE /api/workout/[id]/sets");
+  }
+}
 
 export async function POST(
   request: NextRequest,

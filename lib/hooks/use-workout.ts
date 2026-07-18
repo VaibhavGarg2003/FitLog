@@ -74,6 +74,52 @@ export function useLogSet(date: string) {
   });
 }
 
+export function useUpdateSet(date: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      sessionId: string;
+      setId: string;
+      weight?: number;
+      reps?: number;
+      rpe?: number | null;
+      isWarmup?: boolean;
+    }) => {
+      const { sessionId, ...patch } = data;
+      const res = await fetch(`/api/workout/${sessionId}/sets`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error("Failed to update set");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
+    },
+  });
+}
+
+export function useDeleteSet(date: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { sessionId: string; setId: string }) => {
+      const res = await fetch(`/api/workout/${data.sessionId}/sets`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ setId: data.setId }),
+      });
+      if (!res.ok) throw new Error("Failed to delete set");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
+    },
+  });
+}
+
 export function useFinishSession(date: string) {
   const queryClient = useQueryClient();
 

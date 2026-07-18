@@ -70,3 +70,23 @@ export async function deleteTemplateForUser(templateId: string, userId: string) 
   });
   return result.count > 0;
 }
+
+/**
+ * Owner-scoped update (same updateMany trick as delete above): a non-owner
+ * id updates zero rows → caller answers 404. Replaces the name and the whole
+ * exercises JSONB payload — templates are snapshots, so edit = new snapshot.
+ */
+export async function updateTemplateForUser(
+  templateId: string,
+  userId: string,
+  data: { name: string; exercises: TemplateExercise[] }
+) {
+  const result = await prisma.workoutTemplate.updateMany({
+    where: { id: templateId, userId },
+    data: {
+      name: data.name,
+      exercises: data.exercises as unknown as Prisma.InputJsonValue,
+    },
+  });
+  return result.count > 0;
+}

@@ -10,12 +10,14 @@
  */
 
 import { useState } from "react";
+import { Pencil } from "lucide-react";
 import {
   useTemplates,
   useDeleteTemplate,
   type WorkoutTemplate,
   type TemplateExercise,
 } from "@/lib/hooks/use-templates";
+import { TemplateEditor } from "./template-editor";
 
 interface TemplateListProps {
   onStart: (template: WorkoutTemplate) => void;
@@ -33,6 +35,8 @@ export function TemplateList({ onStart, starting }: TemplateListProps) {
   const { data: templates, isLoading } = useTemplates();
   const deleteTemplate = useDeleteTemplate();
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  // Template currently open in the editor modal (null = closed).
+  const [editing, setEditing] = useState<WorkoutTemplate | null>(null);
 
   if (isLoading || !templates || templates.length === 0) return null;
 
@@ -89,6 +93,14 @@ export function TemplateList({ onStart, starting }: TemplateListProps) {
               </button>
               <button
                 type="button"
+                onClick={() => setEditing(template)}
+                aria-label={`Edit template ${template.name}`}
+                className="text-text-muted hover:text-primary p-1 transition-colors"
+              >
+                <Pencil size={15} />
+              </button>
+              <button
+                type="button"
                 onClick={() => setConfirmingDelete(template.id)}
                 aria-label={`Delete template ${template.name}`}
                 className="text-text-muted hover:text-red-400 text-lg leading-none px-1 transition-colors"
@@ -99,6 +111,11 @@ export function TemplateList({ onStart, starting }: TemplateListProps) {
           )}
         </div>
       ))}
+
+      {/* Editor modal — rename, add/remove exercises, adjust target sets */}
+      {editing && (
+        <TemplateEditor template={editing} onClose={() => setEditing(null)} />
+      )}
     </div>
   );
 }

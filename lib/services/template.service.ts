@@ -17,6 +17,7 @@ import {
   getTemplatesByUser,
   findTemplateForUser,
   deleteTemplateForUser,
+  updateTemplateForUser,
   type TemplateExercise,
 } from "@/lib/repositories/template.repository";
 import { findSessionForUser } from "@/lib/repositories/workout.repository";
@@ -83,6 +84,21 @@ export async function removeTemplate(userId: string, templateId: string) {
   const deleted = await deleteTemplateForUser(templateId, userId);
   if (!deleted) throw new NotFoundError("Template not found");
   return { deleted: true };
+}
+
+/**
+ * Edit a template: rename and/or reshape its exercise list (add/remove
+ * exercises, change target sets). The exercises payload arrives validated
+ * by updateTemplateSchema; the write is owner-scoped.
+ */
+export async function editTemplate(
+  userId: string,
+  templateId: string,
+  data: { name: string; exercises: TemplateExercise[] }
+) {
+  const updated = await updateTemplateForUser(templateId, userId, data);
+  if (!updated) throw new NotFoundError("Template not found");
+  return { updated: true };
 }
 
 /**

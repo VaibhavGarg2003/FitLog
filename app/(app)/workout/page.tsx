@@ -40,6 +40,10 @@ import { ExerciseBrowser } from "./_components/exercise-browser";
 import { SetLogger } from "./_components/set-logger";
 import { SessionSummary } from "./_components/session-summary";
 import { TemplateList } from "./_components/template-list";
+import {
+  LoggedExercises,
+  type ActiveSet,
+} from "./_components/logged-exercises";
 
 export default function WorkoutPage() {
   const selectedDate = useUIStore((s) => s.selectedDate);
@@ -69,10 +73,8 @@ export default function WorkoutPage() {
 
   // setsLogged = sets for the CURRENT exercise (resets when changing exercise)
   const [setsLogged, setSetsLogged] = useState(0);
-
-  // totalSetsInSession = total sets logged across ALL exercises this session
-  // This persists across exercise changes — used to validate before finishing
-  const [totalSetsInSession, setTotalSetsInSession] = useState(0);
+  // NOTE: totalSetsInSession is DERIVED from server data below (activeSets),
+  // not tracked as state — so editing/deleting sets keeps the count truthful.
 
   const [showFinish, setShowFinish] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
@@ -101,7 +103,6 @@ export default function WorkoutPage() {
       });
       setActiveSessionId(session.id);
       setActiveSessionDate(selectedDate);
-      setTotalSetsInSession(0);
       setWorkoutCompleted(null);
       setPlannedExercises(null);
       setDoneExerciseIds(new Set());
@@ -115,7 +116,6 @@ export default function WorkoutPage() {
       const result = await startFromTemplate.mutateAsync(template.id);
       setActiveSessionId(result.session.id);
       setActiveSessionDate(selectedDate);
-      setTotalSetsInSession(0);
       setWorkoutCompleted(null);
       setPlannedExercises(result.exercises);
       setDoneExerciseIds(new Set());
@@ -145,7 +145,6 @@ export default function WorkoutPage() {
       isWarmup: data.isWarmup,
     });
     setSetsLogged((prev) => prev + 1);
-    setTotalSetsInSession((prev) => prev + 1);
   }
 
   // Called when user taps "Finish Workout" button
@@ -168,7 +167,6 @@ export default function WorkoutPage() {
     setActiveSessionDate(null);
     setActiveExercise(null);
     setSetsLogged(0);
-    setTotalSetsInSession(0);
     setShowFinish(false);
     setFinishError(null);
     setPlannedExercises(null);
@@ -209,7 +207,6 @@ export default function WorkoutPage() {
       setActiveSessionId(null);
       setActiveExercise(null);
       setSetsLogged(0);
-      setTotalSetsInSession(0);
       setShowFinish(false);
       setPlannedExercises(null);
       setDoneExerciseIds(new Set());
@@ -229,93 +226,38 @@ export default function WorkoutPage() {
   const onSessionDate = activeSessionDate === selectedDate;
 
   // ── Logged-so-far (active session) ────────────────────────────────
-  // The server returns the active session's sets (refetched after every log),
-  // so this list is always current: each finished exercise shows as logged
-  // while the user moves on to the next one. Grouped by exercise, keeping
-  // first-logged order.
-  interface ActiveSet {
-    id: string;
-    setNumber: number;
-    weight?: number | null;
-    reps?: number | null;
-    isWarmup: boolean;
-    exercise: {
-      id: string;
-      name: string;
-      muscleGroup: string;
-      category: string;
-      metValue: number;
-      isCompound: boolean;
-    };
-  }
+  // The server returns the active session's sets (refetched after every
+  // mutation), so the card is always current. Rendering + per-set editing
+  // live in <LoggedExercises>; this page just derives the inputs.
   const activeSessionData = sessions?.find(
     (s: { id: string }) => s.id === activeSessionId
   );
-  const loggedExercises: { exercise: ActiveSet["exercise"]; sets: ActiveSet[] }[] =
-    [];
-  for (const set of (activeSessionData?.exerciseSets ?? []) as ActiveSet[]) {
-    const entry = loggedExercises.find(
-      (g) => g.exercise.id === set.exercise.id
-    );
-    if (entry) entry.sets.push(set);
-    else loggedExercises.push({ exercise: set.exercise, sets: [set] });
-  }
+  const activeSets = (activeSessionData?.exerciseSets ?? []) as ActiveSet[];
 
-  // Reopen a logged exercise to add more sets — set numbering continues from
-  // what the server already has for it.
-  function handleEditExercise(group: (typeof loggedExercises)[number]) {
-    setActiveExercise(group.exercise);
-    setSetsLogged(group.sets.length);
+  // Total sets = server truth, so editing/deleting sets keeps the finish
+  // validation and the completion card honest.
+  const totalSetsInSession = activeSets.length;
+
+  // Reopen a logged exercise to add more sets — numbering continues after the
+  // highest existing set number (deletes can leave gaps; length would collide).
+  function handleEditExercise(
+    exercise: ActiveSet["exercise"],
+    nextSetNumber: number
+  ) {
+    setActiveExercise(exercise);
+    setSetsLogged(nextSetNumber - 1);
     setShowFinish(false);
   }
 
   const loggedSoFar =
-    loggedExercises.length > 0 ? (
-      <div className="bg-surface rounded-2xl border border-border overflow-hidden">
-        <p className="px-4 pt-3 pb-2 text-xs font-semibold text-text-secondary uppercase tracking-wider">
-          Logged this session
-        </p>
-        <div className="divide-y divide-border">
-          {loggedExercises.map((group) => {
-            const isCurrent = activeExercise?.id === group.exercise.id;
-            return (
-              <div
-                key={group.exercise.id}
-                className={`p-3 px-4 flex items-center gap-3 ${
-                  isCurrent ? "bg-primary/5" : ""
-                }`}
-              >
-                <span className="text-base leading-none">✅</span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-sm font-medium text-text-primary truncate">
-                    {group.exercise.name}
-                  </span>
-                  <span className="block text-xs text-text-muted truncate">
-                    {group.sets.length} set{group.sets.length !== 1 ? "s" : ""}
-                    {" · "}
-                    {group.sets
-                      .map((s) =>
-                        s.weight != null && s.reps != null
-                          ? `${s.weight}kg×${s.reps}`
-                          : `${s.reps ?? "—"} reps`
-                      )
-                      .join(", ")}
-                  </span>
-                </span>
-                {!isCurrent && (
-                  <button
-                    type="button"
-                    onClick={() => handleEditExercise(group)}
-                    className="shrink-0 text-xs font-medium text-primary hover:underline"
-                  >
-                    + sets
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+    activeSets.length > 0 && activeSessionId ? (
+      <LoggedExercises
+        sets={activeSets}
+        sessionId={activeSessionId}
+        date={selectedDate}
+        activeExerciseId={activeExercise?.id ?? null}
+        onAddSets={handleEditExercise}
+      />
     ) : null;
 
   const plannedChecklist =

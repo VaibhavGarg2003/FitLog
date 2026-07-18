@@ -28,6 +28,8 @@ import {
   getSessionsByDate,
   findSessionForUser,
   addSet,
+  updateSetForUser,
+  deleteSetForUser,
   completeSession,
   getWorkoutBurnByDate,
   deleteSession,
@@ -74,6 +76,41 @@ export async function logSet(
     throw new ValidationError("Cannot add sets to a completed session");
   }
   return addSet(sessionId, data);
+}
+
+/**
+ * Edit one logged set (weight/reps/rpe/warmup) in an ACTIVE session.
+ * Ownership + in-progress status are enforced in a single owner-scoped
+ * query (see updateSetForUser) — zero rows updated means "not yours,
+ * doesn't exist, or already completed", all answered as Not found.
+ */
+export async function editSet(
+  sessionId: string,
+  userId: string,
+  setId: string,
+  data: {
+    weight?: number;
+    reps?: number;
+    rpe?: number | null;
+    isWarmup?: boolean;
+  }
+) {
+  const updated = await updateSetForUser(setId, sessionId, userId, data);
+  if (!updated) throw new NotFoundError("Set not found");
+  return { updated: true };
+}
+
+/**
+ * Remove one logged set from an ACTIVE session (same scoping as editSet).
+ */
+export async function removeSet(
+  sessionId: string,
+  userId: string,
+  setId: string
+) {
+  const deleted = await deleteSetForUser(setId, sessionId, userId);
+  if (!deleted) throw new NotFoundError("Set not found");
+  return { deleted: true };
 }
 
 /**

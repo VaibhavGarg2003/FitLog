@@ -97,6 +97,44 @@ export const startFromTemplateSchema = z.object({
   date: dateStrSchema.optional(),
 });
 
+// ─── PATCH /api/workout/[id]/sets — edit one logged set ──────
+// All fields optional except setId: the client sends only what changed.
+// rpe accepts null so the user can CLEAR an intensity they set by mistake.
+export const updateSetSchema = z.object({
+  setId: z.string().min(1),
+  weight: z.number().min(0).max(1000).optional(),
+  reps: z.number().int().min(0).max(200).optional(),
+  rpe: z.number().int().min(1).max(10).nullable().optional(),
+  isWarmup: z.boolean().optional(),
+});
+
+// ─── DELETE /api/workout/[id]/sets — remove one logged set ───
+export const deleteSetSchema = z.object({
+  setId: z.string().min(1),
+});
+
+// ─── PUT /api/templates/[id] — edit a saved template ─────────
+// Unlike creation (server-derived from a session), editing accepts the
+// full exercise list — but every entry is validated and the write is
+// owner-scoped, so a user can only reshape their own template.
+export const updateTemplateSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  exercises: z
+    .array(
+      z.object({
+        exerciseId: z.string().min(1),
+        name: z.string().min(1).max(120),
+        muscleGroup: z.string().min(1).max(60),
+        category: z.string().min(1).max(30),
+        metValue: z.number().min(0).max(30),
+        isCompound: z.boolean(),
+        targetSets: z.number().int().min(1).max(10),
+      })
+    )
+    .min(1, "A template needs at least one exercise")
+    .max(20),
+});
+
 // ─── PUT /api/profile — update profile + recalculate targets ─
 export const updateProfileSchema = z
   .object({
