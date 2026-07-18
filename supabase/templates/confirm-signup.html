@@ -1,0 +1,159 @@
+<!--
+  FitLog — "Confirm signup" email template
+  ═════════════════════════════════════════
+  Source of truth for Supabase Dashboard → Authentication → Emails → Confirm signup.
+  This file is not read by Supabase automatically (no supabase/config.toml linking
+  it yet) — paste the contents below into the Dashboard's HTML editor manually
+  whenever you update it here.
+
+  Supabase template variables used: {{ .ConfirmationURL }}, {{ .Email }}
+  Suggested Subject line: Confirm your email to start using FitLog
+-->
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>Confirm your email</title>
+  <!--[if mso]>
+  <noscript>
+    <xml>
+      <o:OfficeDocumentSettings>
+        <o:PixelsPerInch>96</o:PixelsPerInch>
+      </o:OfficeDocumentSettings>
+    </xml>
+  </noscript>
+  <![endif]-->
+  <style>
+    body, table, td { -ms-text-size-adjust: 100%; -webkit-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; outline: none; }
+    body { margin: 0; padding: 0; width: 100% !important; }
+    a { text-decoration: none; }
+
+    @media (prefers-color-scheme: dark) {
+      .page-bg { background-color: #0b0d10 !important; }
+    }
+    @media screen and (max-width: 480px) {
+      .container { width: 100% !important; }
+      .px-40 { padding-left: 24px !important; padding-right: 24px !important; }
+      .py-40 { padding-top: 28px !important; padding-bottom: 28px !important; }
+      .h1 { font-size: 20px !important; }
+    }
+  </style>
+</head>
+<body class="page-bg" style="margin:0; padding:0; background-color:#f1f2f4;">
+  <!-- Preheader: shows in inbox preview, hidden in the body -->
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; opacity:0;">
+    Confirm your email to start tracking training, nutrition, and progress with FitLog.
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="page-bg" style="background-color:#f1f2f4;">
+    <tr>
+      <td align="center" style="padding: 40px 16px;">
+
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" class="container" style="width:560px; max-width:100%;">
+
+          <!-- Card -->
+          <tr>
+            <td class="px-40 py-40" style="background-color:#0b0d10; border-radius:16px; padding:40px; border:1px solid rgba(255,255,255,0.08);">
+
+              <!-- Brand header -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding-bottom:28px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="width:40px; height:40px; border-radius:12px; background-color:rgba(34,197,94,0.15); text-align:center; vertical-align:middle; font-size:20px; line-height:40px;">
+                          &#128170;
+                        </td>
+                        <td style="padding-left:10px; font-family:Arial, Helvetica, sans-serif; font-size:18px; font-weight:700; color:#f2f4f7; letter-spacing:-0.2px;">
+                          FitLog
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Divider -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr><td style="border-top:1px solid rgba(255,255,255,0.08); font-size:0; line-height:0;">&nbsp;</td></tr>
+              </table>
+
+              <!-- Headline + body -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding-top:28px; font-family:Arial, Helvetica, sans-serif;">
+                    <div class="h1" style="font-size:24px; line-height:32px; font-weight:700; color:#f2f4f7;">
+                      Confirm your email address
+                    </div>
+                    <div style="padding-top:12px; font-size:15px; line-height:24px; color:#b7bdc6;">
+                      Hey — thanks for signing up. Click below to confirm
+                      <strong style="color:#f2f4f7;">{{ .Email }}</strong>
+                      and unlock your dashboard, workout logs, and nutrition tracking.
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA button (bulletproof, Outlook-safe) -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding:32px 0 8px;">
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="{{ .ConfirmationURL }}" style="height:48px;v-text-anchor:middle;width:280px;" arcsize="12%" fillcolor="#22c55e" stroke="f">
+                    <w:anchorlock/>
+                    <center style="color:#0b0d10;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;">Confirm email address</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-->
+                    <a href="{{ .ConfirmationURL }}"
+                       style="display:inline-block; background-color:#22c55e; color:#0b0d10; font-family:Arial, Helvetica, sans-serif; font-size:16px; font-weight:bold; text-align:center; padding:14px 40px; border-radius:10px;">
+                      Confirm email address
+                    </a>
+                    <!--<![endif]-->
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Expiry / safety note -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding-top:16px; font-family:Arial, Helvetica, sans-serif; font-size:13px; line-height:20px; color:#7d8590;">
+                    This link expires in 24 hours. If you didn't create a FitLog account, you can safely ignore this email.
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Fallback link -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding-top:28px; font-family:Arial, Helvetica, sans-serif; font-size:12px; line-height:18px; color:#7d8590;">
+                    Button not working? Paste this link into your browser:
+                    <br />
+                    <a href="{{ .ConfirmationURL }}" style="color:#4ade80; word-break:break-all;">{{ .ConfirmationURL }}</a>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Outer footer (outside the card) -->
+          <tr>
+            <td style="padding:24px 12px 0; font-family:Arial, Helvetica, sans-serif; font-size:12px; line-height:18px; color:#9aa0a6; text-align:center;">
+              Sent to {{ .Email }} · FitLog — training, nutrition, and progress tracking
+              <br />
+              &copy; 2026 FitLog. All rights reserved.
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

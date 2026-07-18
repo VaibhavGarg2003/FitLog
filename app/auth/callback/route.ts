@@ -5,13 +5,21 @@
  * WHAT IS THIS?
  * ─────────────
  * When a user logs in with Google OAuth, the flow is:
- * 1. User clicks "Sign in with Google"
+ * 1. User clicks "Sign in with Google" (login OR signup — same OAuth)
  * 2. Browser redirects to Google's login page
  * 3. User authenticates with Google
  * 4. Google redirects back to YOUR app with a `code` parameter
  * 5. THIS route handler receives that `code`
  * 6. It exchanges the `code` for an auth session (JWT token)
- * 7. It redirects the user to /dashboard (or their intended page)
+ * 7. It redirects the user into the app (or onboarding if first time)
+ *
+ * AUTO-SIGNUP (important):
+ * ───────────────────────
+ * Supabase `signInWithOAuth` creates an auth.users row automatically when
+ * the Google account is new. There is no separate "must visit /signup first"
+ * step for Google. Login and signup both call the same OAuth starter;
+ * first-time users get a session, then we send them to /onboarding.
+ * App data (public.users + Profile) is created only when onboarding finishes.
  *
  * WHY A ROUTE HANDLER (not a page)?
  * ──────────────────────────────────
@@ -24,6 +32,7 @@
  */
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isUserOnboarded } from "@/lib/repositories/profile.repository";
 import { safeRedirectPath } from "@/lib/utils/safe-redirect";
 
 export async function GET(request: Request) {
@@ -43,6 +52,8 @@ export async function GET(request: Request) {
     // Exchange the OAuth code for a session.
     // This is the critical step — it validates the code with Google
     // and creates a Supabase session (JWT) for the user.
+    // If this Google account has never used the app, Supabase also
+    // creates auth.users here (auto-signup).
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
@@ -76,7 +87,19 @@ export async function GET(request: Request) {
         return NextResponse.redirect(`${origin}/settings?linked=google`);
       }
 
-      // Normal login/signup → into the app.
+      // Normal login/signup (including first-time Google from /login).
+      // New users have no completed profile yet → onboarding, not dashboard.
+      // (App layout would also bounce them, but routing here avoids a flash.)
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        const onboarded = await isUserOnboarded(user.id);
+        if (!onboarded) {
+          return NextResponse.redirect(`${origin}/onboarding`);
+        }
+      }
+
       return NextResponse.redirect(`${origin}${redirect}`);
     }
   }

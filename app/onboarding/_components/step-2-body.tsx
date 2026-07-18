@@ -7,7 +7,7 @@ import { useDebounce } from "@/lib/hooks/use-debounce";
 import { cn } from "@/lib/utils/cn";
 
 /** Wait this long after weight/height stop changing before showing BMI. */
-const BMI_DEBOUNCE_MS = 2000;
+const BMI_DEBOUNCE_MS = 500;
 
 /** Schema bounds — used for BMI preview and placeholder hints. */
 const MIN_WEIGHT_KG = 30;

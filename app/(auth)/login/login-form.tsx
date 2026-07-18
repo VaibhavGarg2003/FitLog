@@ -66,7 +66,9 @@ export function LoginForm() {
   function handleGoogleLogin() {
     setLoading(true);
     setError(null);
-    // Full navigation to server OAuth starter (sets nothing sensitive client-side)
+    // Same OAuth path as signup: Supabase auto-creates auth.users for new
+    // Google accounts. Callback sends non-onboarded users to /onboarding.
+    // Full navigation to server OAuth starter (no tokens in the browser).
     window.location.href = `/api/auth/oauth?provider=google&redirect=${encodeURIComponent(redirectTo)}`;
   }
 
