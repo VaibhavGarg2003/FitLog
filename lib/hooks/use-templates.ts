@@ -50,7 +50,12 @@ export function useSaveTemplate() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: { name: string; fromSessionId: string }) => {
+    mutationFn: async (data: {
+      name: string;
+      fromSessionId: string;
+      // Optional subset of the session's exercises (for split templates).
+      exerciseIds?: string[];
+    }) => {
       const res = await fetch("/api/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -58,6 +63,34 @@ export function useSaveTemplate() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to save template");
+      return json;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY });
+    },
+  });
+}
+
+export function useAppendToTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      templateId: string;
+      fromSessionId: string;
+      exerciseIds?: string[];
+    }) => {
+      const { templateId, ...payload } = data;
+      const res = await fetch(
+        `/api/templates/${encodeURIComponent(templateId)}/append`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to add to template");
       return json;
     },
     onSuccess: () => {

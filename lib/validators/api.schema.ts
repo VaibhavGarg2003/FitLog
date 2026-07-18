@@ -90,6 +90,16 @@ export const createTemplateSchema = z.object({
   // The exercise list is derived SERVER-SIDE from this session's real
   // sets — the client cannot fabricate a template payload.
   fromSessionId: z.string().min(1),
+  // Optional subset: only these exercise ids from the session go into the
+  // template (lets a user split one session into e.g. a Biceps + a Triceps
+  // template). Omitted → all exercises, preserving the original behavior.
+  exerciseIds: z.array(z.string().min(1)).min(1).max(20).optional(),
+});
+
+// ─── POST /api/templates/[id]/append — add session exercises to a template ─
+export const appendToTemplateSchema = z.object({
+  fromSessionId: z.string().min(1),
+  exerciseIds: z.array(z.string().min(1)).min(1).max(20).optional(),
 });
 
 // ─── POST /api/templates/[id]/start — start session from it ─

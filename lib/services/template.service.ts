@@ -25,14 +25,21 @@ import { startSession } from "@/lib/services/workout.service";
 import { NotFoundError, ValidationError } from "@/lib/utils/errors";
 
 /**
- * Save a completed session as a reusable template.
- * Derives unique exercises (first-performed order) + working-set counts.
+ * Derive template exercises from a session's real sets: unique exercises in
+ * first-appearance order, counting WORKING sets only (warmups aren't part of
+ * the plan; an all-warmup exercise still floors at 1 set). When `exerciseIds`
+ * is given, only those exercises are kept — this is how one session splits into
+ * multiple templates (e.g. biceps vs triceps). Shared by create + append.
  */
-export async function createTemplateFromSession(
+async function deriveExercisesFromSession(
   userId: string,
-  data: { name: string; sessionId: string }
-) {
-  const session = await findSessionForUser(data.sessionId, userId);
+  sessionId: string,
+  exerciseIds?: string[]
+): Promise<{
+  exercises: TemplateExercise[];
+  splitType: "PPL" | "UPPER_LOWER" | "BRO" | "FULL_BODY" | "CUSTOM" | null;
+}> {
+  const session = await findSessionForUser(sessionId, userId);
   if (!session) throw new NotFoundError("Session not found");
 
   if (session.exerciseSets.length === 0) {
@@ -41,10 +48,11 @@ export async function createTemplateFromSession(
     );
   }
 
-  // Derive: unique exercises in first-appearance order, counting
-  // WORKING sets only (warmups aren't part of the plan).
+  const allow = exerciseIds ? new Set(exerciseIds) : null;
+
   const byExercise = new Map<string, TemplateExercise>();
   for (const set of session.exerciseSets) {
+    if (allow && !allow.has(set.exercise.id)) continue;
     const existing = byExercise.get(set.exercise.id);
     if (existing) {
       if (!set.isWarmup) existing.targetSets += 1;
@@ -61,17 +69,70 @@ export async function createTemplateFromSession(
     }
   }
 
-  // An all-warmup exercise still belongs in the plan — floor at 1 set.
   const exercises = [...byExercise.values()].map((e) => ({
     ...e,
     targetSets: Math.max(e.targetSets, 1),
   }));
 
+  if (exercises.length === 0) {
+    throw new ValidationError(
+      "None of the selected exercises were found in this session."
+    );
+  }
+
+  return { exercises, splitType: session.splitType };
+}
+
+/**
+ * Save a session (or a chosen subset of its exercises) as a reusable template.
+ */
+export async function createTemplateFromSession(
+  userId: string,
+  data: { name: string; sessionId: string; exerciseIds?: string[] }
+) {
+  const { exercises, splitType } = await deriveExercisesFromSession(
+    userId,
+    data.sessionId,
+    data.exerciseIds
+  );
+
   return createTemplate(userId, {
     name: data.name,
-    splitType: session.splitType,
+    splitType,
     exercises,
   });
+}
+
+/**
+ * Append a session's exercises (or a chosen subset) to an EXISTING template.
+ * Exercises already in the template are skipped (dedup by exerciseId), so the
+ * user's existing target-set counts are preserved. Owner-scoped throughout.
+ */
+export async function appendSessionToTemplate(
+  userId: string,
+  templateId: string,
+  data: { sessionId: string; exerciseIds?: string[] }
+) {
+  const template = await findTemplateForUser(templateId, userId);
+  if (!template) throw new NotFoundError("Template not found");
+
+  const { exercises: incoming } = await deriveExercisesFromSession(
+    userId,
+    data.sessionId,
+    data.exerciseIds
+  );
+
+  const current = template.exercises as unknown as TemplateExercise[];
+  const currentIds = new Set(current.map((e) => e.exerciseId));
+  const additions = incoming.filter((e) => !currentIds.has(e.exerciseId));
+  const merged = [...current, ...additions].slice(0, 20);
+
+  const updated = await updateTemplateForUser(templateId, userId, {
+    name: template.name,
+    exercises: merged,
+  });
+  if (!updated) throw new NotFoundError("Template not found");
+  return { updated: true, added: additions.length };
 }
 
 /** All of the user's templates, newest first. */

@@ -44,6 +44,7 @@ import {
   LoggedExercises,
   type ActiveSet,
 } from "./_components/logged-exercises";
+import { SaveTemplateModal } from "./_components/save-template-modal";
 
 export default function WorkoutPage() {
   const selectedDate = useUIStore((s) => s.selectedDate);
@@ -85,10 +86,14 @@ export default function WorkoutPage() {
 
   // After a successful finish, show a completion screen instead of blank page
   const [workoutCompleted, setWorkoutCompleted] = useState<{
+    sessionId: string;
     exerciseCount: number;
     totalSets: number;
     durationMin: number;
   } | null>(null);
+
+  // Which session's "Save as template" picker is open (active or just-finished).
+  const [savingSessionId, setSavingSessionId] = useState<string | null>(null);
 
   // Planned exercises when the session was started from a template.
   // Tapping one jumps straight into the SetLogger for it.
@@ -209,6 +214,7 @@ export default function WorkoutPage() {
 
       // Fix 5: Show a completion card instead of going blank
       setWorkoutCompleted({
+        sessionId: activeSessionId,
         exerciseCount: Math.max(exerciseCount, 1),
         totalSets: totalSetsInSession,
         durationMin,
@@ -262,13 +268,24 @@ export default function WorkoutPage() {
 
   const loggedSoFar =
     activeSets.length > 0 && activeSessionId ? (
-      <LoggedExercises
-        sets={activeSets}
-        sessionId={activeSessionId}
-        date={selectedDate}
-        activeExerciseId={activeExercise?.id ?? null}
-        onAddSets={handleEditExercise}
-      />
+      <div className="space-y-2">
+        <LoggedExercises
+          sets={activeSets}
+          sessionId={activeSessionId}
+          date={selectedDate}
+          activeExerciseId={activeExercise?.id ?? null}
+          onAddSets={handleEditExercise}
+        />
+        {/* Save any subset of what's logged as a template — right now, mid
+            workout (e.g. save biceps before starting triceps). */}
+        <button
+          type="button"
+          onClick={() => setSavingSessionId(activeSessionId)}
+          className="w-full py-2 text-sm text-text-secondary hover:text-primary font-medium transition-colors"
+        >
+          💾 Save as template
+        </button>
+      </div>
     ) : null;
 
   const plannedChecklist =
@@ -370,7 +387,7 @@ export default function WorkoutPage() {
             reps?: number;
             rpe?: number;
             isWarmup: boolean;
-            exercise: { name: string; muscleGroup: string };
+            exercise: { id: string; name: string; muscleGroup: string };
           }>;
         }) => (
           <SessionSummary key={session.id} session={session} />
@@ -591,6 +608,15 @@ export default function WorkoutPage() {
                 <p className="text-xs text-text-muted">Minutes</p>
               </div>
             </div>
+            {/* Save the just-finished session as template(s) — pick which
+                exercises, split into as many templates as you like. */}
+            <button
+              type="button"
+              onClick={() => setSavingSessionId(workoutCompleted.sessionId)}
+              className="w-full py-3 bg-primary/10 text-primary font-semibold rounded-xl hover:bg-primary/20 transition-colors"
+            >
+              💾 Save as Template
+            </button>
             <button
               type="button"
               onClick={() => setWorkoutCompleted(null)}
@@ -653,6 +679,24 @@ export default function WorkoutPage() {
           setSetsLogged(0);
         }}
       />
+
+      {/* Save-as-template picker — driven by savingSessionId, sourced from the
+          live session data so it works both mid-workout and just after. */}
+      {savingSessionId &&
+        (() => {
+          const saving = sessions?.find(
+            (s: { id: string }) => s.id === savingSessionId
+          );
+          const savingSets = (saving?.exerciseSets ?? []) as ActiveSet[];
+          if (savingSets.length === 0) return null;
+          return (
+            <SaveTemplateModal
+              sessionId={savingSessionId}
+              sets={savingSets}
+              onClose={() => setSavingSessionId(null)}
+            />
+          );
+        })()}
     </div>
   );
 }
