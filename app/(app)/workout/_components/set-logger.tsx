@@ -28,7 +28,7 @@
  * The engine uses it for session intensity calculations.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Copy } from "lucide-react";
 
 const INTENSITY_LABELS: Record<number, string> = {
@@ -63,7 +63,6 @@ interface SetLoggerProps {
 
 export function SetLogger({
   exerciseName,
-  exerciseId,
   onLogSet,
   onDone,
   setsLogged,
@@ -77,14 +76,9 @@ export function SetLogger({
   /** Last successfully logged set for THIS exercise (for "Use previous set"). */
   const [previousSet, setPreviousSet] = useState<LoggedSetDraft | null>(null);
 
-  // New exercise → clear previous-set memory and form (except intentional parent remount).
-  useEffect(() => {
-    setPreviousSet(null);
-    setWeight("");
-    setReps("");
-    setIntensity(null);
-    setIsWarmup(false);
-  }, [exerciseId, exerciseName]);
+  // NOTE: switching exercises resets ALL of this state via a `key` remount at
+  // the call site (workout/page.tsx passes key={activeExercise.id}) — React's
+  // sanctioned replacement for a reset-state-on-prop-change effect.
 
   async function handleLog() {
     const w = parseFloat(weight);

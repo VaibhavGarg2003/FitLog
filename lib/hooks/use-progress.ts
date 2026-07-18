@@ -23,6 +23,16 @@ interface ProgressData {
     startValue: number;
     startDate: string;
   } | null;
+  // Completed sessions from the last 7 days (newest first).
+  recentWorkouts: {
+    id: string;
+    date: string;
+    durationMin: number | null;
+    caloriesBurnedLow: number | null;
+    caloriesBurnedHigh: number | null;
+    totalSets: number;
+    exercises: string[];
+  }[];
 }
 
 export function useProgressData() {

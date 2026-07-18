@@ -95,6 +95,9 @@ export function useFinishSession(date: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
+      // A newly COMPLETED session must appear in the Progress page's
+      // "Recent Workouts" card immediately — invalidate its cache too.
+      queryClient.invalidateQueries({ queryKey: ["progress"] });
     },
   });
 }

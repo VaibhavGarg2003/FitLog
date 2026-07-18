@@ -19,6 +19,7 @@ import {
   getFirstWeight,
   getActiveGoal,
 } from "@/lib/repositories/progress.repository";
+import { getRecentSessions } from "@/lib/repositories/workout.repository";
 
 /**
  * Log today's weight.
@@ -35,13 +36,15 @@ export async function recordWeight(
  * Returns weight history, current/starting weights, and goal info.
  */
 export async function getProgressData(userId: string) {
-  const [history, latest, first, logCount, activeGoal] = await Promise.all([
-    getWeightHistory(userId, 90),
-    getLatestWeight(userId),
-    getFirstWeight(userId),
-    getWeightLogCount(userId),
-    getActiveGoal(userId),
-  ]);
+  const [history, latest, first, logCount, activeGoal, recentSessions] =
+    await Promise.all([
+      getWeightHistory(userId, 90),
+      getLatestWeight(userId),
+      getFirstWeight(userId),
+      getWeightLogCount(userId),
+      getActiveGoal(userId),
+      getRecentSessions(userId, 7),
+    ]);
 
   const startWeight = first?.weightKg ?? null;
   const currentWeight = latest?.weightKg ?? null;
@@ -49,6 +52,17 @@ export async function getProgressData(userId: string) {
     startWeight !== null && currentWeight !== null
       ? Math.round((currentWeight - startWeight) * 10) / 10
       : null;
+
+  // Compact shape for the Progress page's "Recent Workouts" card.
+  const recentWorkouts = recentSessions.map((s) => ({
+    id: s.id,
+    date: s.date,
+    durationMin: s.durationMin,
+    caloriesBurnedLow: s.caloriesBurnedLow,
+    caloriesBurnedHigh: s.caloriesBurnedHigh,
+    totalSets: s.exerciseSets.length,
+    exercises: [...new Set(s.exerciseSets.map((es) => es.exercise.name))],
+  }));
 
   return {
     history: history.reverse(), // oldest first for the chart
@@ -58,6 +72,7 @@ export async function getProgressData(userId: string) {
     logCount,
     canUseAdaptiveTDEE: logCount >= 14,
     activeGoal,
+    recentWorkouts,
   };
 }
 

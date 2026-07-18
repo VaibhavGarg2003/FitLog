@@ -228,6 +228,96 @@ export default function WorkoutPage() {
   // other date look like a workout is already in progress.
   const onSessionDate = activeSessionDate === selectedDate;
 
+  // ── Logged-so-far (active session) ────────────────────────────────
+  // The server returns the active session's sets (refetched after every log),
+  // so this list is always current: each finished exercise shows as logged
+  // while the user moves on to the next one. Grouped by exercise, keeping
+  // first-logged order.
+  interface ActiveSet {
+    id: string;
+    setNumber: number;
+    weight?: number | null;
+    reps?: number | null;
+    isWarmup: boolean;
+    exercise: {
+      id: string;
+      name: string;
+      muscleGroup: string;
+      category: string;
+      metValue: number;
+      isCompound: boolean;
+    };
+  }
+  const activeSessionData = sessions?.find(
+    (s: { id: string }) => s.id === activeSessionId
+  );
+  const loggedExercises: { exercise: ActiveSet["exercise"]; sets: ActiveSet[] }[] =
+    [];
+  for (const set of (activeSessionData?.exerciseSets ?? []) as ActiveSet[]) {
+    const entry = loggedExercises.find(
+      (g) => g.exercise.id === set.exercise.id
+    );
+    if (entry) entry.sets.push(set);
+    else loggedExercises.push({ exercise: set.exercise, sets: [set] });
+  }
+
+  // Reopen a logged exercise to add more sets — set numbering continues from
+  // what the server already has for it.
+  function handleEditExercise(group: (typeof loggedExercises)[number]) {
+    setActiveExercise(group.exercise);
+    setSetsLogged(group.sets.length);
+    setShowFinish(false);
+  }
+
+  const loggedSoFar =
+    loggedExercises.length > 0 ? (
+      <div className="bg-surface rounded-2xl border border-border overflow-hidden">
+        <p className="px-4 pt-3 pb-2 text-xs font-semibold text-text-secondary uppercase tracking-wider">
+          Logged this session
+        </p>
+        <div className="divide-y divide-border">
+          {loggedExercises.map((group) => {
+            const isCurrent = activeExercise?.id === group.exercise.id;
+            return (
+              <div
+                key={group.exercise.id}
+                className={`p-3 px-4 flex items-center gap-3 ${
+                  isCurrent ? "bg-primary/5" : ""
+                }`}
+              >
+                <span className="text-base leading-none">✅</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-medium text-text-primary truncate">
+                    {group.exercise.name}
+                  </span>
+                  <span className="block text-xs text-text-muted truncate">
+                    {group.sets.length} set{group.sets.length !== 1 ? "s" : ""}
+                    {" · "}
+                    {group.sets
+                      .map((s) =>
+                        s.weight != null && s.reps != null
+                          ? `${s.weight}kg×${s.reps}`
+                          : `${s.reps ?? "—"} reps`
+                      )
+                      .join(", ")}
+                  </span>
+                </span>
+                {!isCurrent && (
+                  <button
+                    type="button"
+                    onClick={() => handleEditExercise(group)}
+                    className="shrink-0 text-xs font-medium text-primary hover:underline"
+                  >
+                    + sets
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    ) : null;
+
   const plannedChecklist =
     plannedExercises && plannedExercises.length > 0 ? (
       <div className="bg-surface rounded-2xl border border-border divide-y divide-border overflow-hidden">
@@ -367,6 +457,9 @@ export default function WorkoutPage() {
           <div className="space-y-4 lg:col-span-7">
             {activeExercise ? (
               <SetLogger
+                // key: switching exercises remounts the logger, resetting its
+                // form + previous-set memory (replaces a setState-in-effect).
+                key={activeExercise.id}
                 exerciseId={activeExercise.id}
                 exerciseName={activeExercise.name}
                 setsLogged={setsLogged}
@@ -424,6 +517,10 @@ export default function WorkoutPage() {
               <div className="lg:hidden">{sessionControls}</div>
             )}
 
+            {/* Phone: exercises logged so far — visible while logging the next
+                one, between exercises, and on the finish screen. */}
+            {loggedSoFar && <div className="lg:hidden">{loggedSoFar}</div>}
+
             {/* Laptop primary column when no exercise selected and not finishing:
                 compact status + primary actions (checklist is on the right). */}
             {!activeExercise && !showFinish && (
@@ -459,7 +556,9 @@ export default function WorkoutPage() {
               {plannedExercises?.length ? "Session Plan" : "Session"}
             </h2>
             {plannedChecklist}
-            {!plannedChecklist && (
+            {/* Laptop: logged exercises live in the Session panel */}
+            {loggedSoFar}
+            {!plannedChecklist && !loggedSoFar && (
               <div className="bg-surface rounded-2xl border border-border p-5 text-sm text-text-muted">
                 Add exercises as you go, or finish when you&apos;re done.
               </div>

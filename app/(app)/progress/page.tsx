@@ -83,6 +83,56 @@ export default function ProgressPage() {
               />
             </div>
 
+            {/* Recent Workouts — last 7 days, refreshed when a session is
+                finished (finish mutation invalidates the progress cache) */}
+            <div className="lg:col-span-12">
+              <div className="bg-surface rounded-2xl border border-border overflow-hidden">
+                <p className="px-4 lg:px-5 pt-4 pb-2 text-sm font-semibold text-text-secondary uppercase tracking-wider">
+                  Recent Workouts{" "}
+                  <span className="normal-case font-normal text-text-muted">
+                    · last 7 days
+                  </span>
+                </p>
+                {progress.recentWorkouts?.length ? (
+                  <div className="divide-y divide-border">
+                    {progress.recentWorkouts.map((w) => (
+                      <div
+                        key={w.id}
+                        className="p-3 px-4 lg:px-5 flex items-center gap-3"
+                      >
+                        <span className="text-base leading-none">🏋️</span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm font-medium text-text-primary truncate">
+                            {w.exercises.length > 0
+                              ? w.exercises.join(", ")
+                              : "Workout"}
+                          </span>
+                          <span className="block text-xs text-text-muted">
+                            {new Date(w.date).toLocaleDateString(undefined, {
+                              weekday: "short",
+                              day: "numeric",
+                              month: "short",
+                            })}
+                            {" · "}
+                            {w.totalSets} set{w.totalSets !== 1 ? "s" : ""}
+                            {w.durationMin ? ` · ${w.durationMin} min` : ""}
+                            {w.caloriesBurnedLow && w.caloriesBurnedHigh
+                              ? ` · ≈${w.caloriesBurnedLow}–${w.caloriesBurnedHigh} kcal`
+                              : ""}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="px-4 lg:px-5 pb-4 text-sm text-text-muted">
+                    No workouts in the last 7 days — log one from the Workout
+                    tab and it will show up here.
+                  </p>
+                )}
+              </div>
+            </div>
+
             {/* Weekly AI Insight (Step 4) */}
             <div
               className={

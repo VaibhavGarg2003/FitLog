@@ -200,6 +200,31 @@ export async function getWorkoutBurnByDate(userId: string, date: string) {
 }
 
 /**
+ * Get completed sessions from the last N days (newest first).
+ * Used by the Progress page's "Recent Workouts" card, so freshly logged
+ * workouts show up alongside weight tracking.
+ */
+export async function getRecentSessions(userId: string, days: number = 7) {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  return prisma.workoutSession.findMany({
+    where: {
+      userId,
+      status: "COMPLETED",
+      date: { gte: since },
+    },
+    orderBy: { date: "desc" },
+    include: {
+      exerciseSets: {
+        select: {
+          id: true,
+          exercise: { select: { name: true } },
+        },
+      },
+    },
+  });
+}
+
+/**
  * Delete a session and all its sets (cascade).
  */
 export async function deleteSession(sessionId: string, userId: string) {

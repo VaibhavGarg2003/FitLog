@@ -345,16 +345,30 @@ export function Step4Goal() {
     engineContext,
   ]);
 
-  // If restored months no longer match available options, clear selection.
+  // If restored months no longer match available options, clear the selection.
+  // Local state: adjusted DURING RENDER (React's sanctioned pattern for
+  // derived resets — guarded, so it re-renders once instead of cascading).
+  const selectionInvalid =
+    selectedMonths !== undefined &&
+    timelineOptions.length > 0 &&
+    !timelineOptions.some((o) => o.months === selectedMonths);
+  if (selectionInvalid) {
+    setSelectedMonths(undefined);
+  }
+
+  // Store sync: keyed off the STORE value (not local state) so it still fires
+  // after the render-phase reset above. Zustand is an external system — this
+  // is exactly what effects are for.
+  const storedMonths = formData.timelineMonths;
   useEffect(() => {
-    if (selectedMonths === undefined) return;
-    if (timelineOptions.length === 0) return;
-    const stillValid = timelineOptions.some((o) => o.months === selectedMonths);
-    if (!stillValid) {
-      setSelectedMonths(undefined);
+    if (
+      storedMonths !== undefined &&
+      timelineOptions.length > 0 &&
+      !timelineOptions.some((o) => o.months === storedMonths)
+    ) {
       updateFormData({ timelineMonths: undefined });
     }
-  }, [timelineOptions, selectedMonths, updateFormData]);
+  }, [timelineOptions, storedMonths, updateFormData]);
 
   const selectedOption = timelineOptions.find(
     (o) => o.months === selectedMonths
