@@ -14,7 +14,9 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "reset-user": "dotenv -e .env.local -- tsx scripts/reset-user.ts",
-    "reset-user:prod": "dotenv -e .env.prod.local -- tsx scripts/reset-user.ts --prod"
+    "reset-user:prod": "dotenv -e .env.prod.local -- tsx scripts/reset-user.ts --prod",
+    "reset-users": "dotenv -e .env.local -- tsx scripts/reset-users.ts",
+    "reset-users:prod": "dotenv -e .env.prod.local -- tsx scripts/reset-users.ts --prod"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
