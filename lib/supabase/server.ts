@@ -103,3 +103,20 @@ export async function getAuthUserId(): Promise<string | null> {
   if (error || !data) return null;
   return data.claims.sub ?? null;
 }
+
+/**
+ * Helper: Get the current session's raw access token (the Supabase JWT),
+ * or null if not logged in.
+ *
+ * Used to authenticate calls FROM our Next.js server TO the Django service
+ * — the browser talks to same-origin Next.js API routes, which forward
+ * this token as `Authorization: Bearer <token>`. Django verifies its
+ * signature locally (the same JWT, one identity provider, two verifiers).
+ */
+export async function getAccessToken(): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session?.access_token ?? null;
+}

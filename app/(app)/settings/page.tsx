@@ -27,6 +27,7 @@ import { useProfile } from "@/lib/hooks/use-profile";
 import { useQueryClient } from "@tanstack/react-query";
 import { GoalCard } from "./_components/goal-card";
 import { SigninMethodsCard } from "./_components/signin-methods-card";
+import { SharedLinksCard } from "./_components/shared-links-card";
 import { cn } from "@/lib/utils/cn";
 
 const ACTIVITY_OPTIONS = [
@@ -185,6 +186,9 @@ export default function SettingsPage() {
           >
             <SigninMethodsCard />
           </Suspense>
+
+          {/* Shared workout links — manage / revoke (renders if any exist) */}
+          <SharedLinksCard />
 
           <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-3">
             <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
