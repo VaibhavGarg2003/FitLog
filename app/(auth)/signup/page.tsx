@@ -5,17 +5,24 @@
  */
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Dumbbell, Mail, Lock, Globe } from "lucide-react";
 import { APP_NAME } from "@/lib/utils/constants";
 import { cn } from "@/lib/utils/cn";
+import {
+  TurnstileField,
+  isTurnstileEnabled,
+  type TurnstileFieldHandle,
+} from "@/components/auth/turnstile-field";
 
 export default function SignupPage() {
   const router = useRouter();
+  const turnstileRef = useRef<TurnstileFieldHandle>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -26,11 +33,21 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
 
+    if (isTurnstileEnabled && !captchaToken) {
+      setError("Please complete the human verification.");
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          ...(captchaToken ? { captchaToken } : {}),
+        }),
       });
 
       const data = (await res.json().catch(() => ({}))) as {
@@ -49,6 +66,7 @@ export default function SignupPage() {
 
       if (!res.ok) {
         setError(data.error ?? "Could not create account");
+        turnstileRef.current?.reset();
         setLoading(false);
         return;
       }
@@ -64,6 +82,7 @@ export default function SignupPage() {
       setLoading(false);
     } catch {
       setError("Something went wrong. Please try again.");
+      turnstileRef.current?.reset();
       setLoading(false);
     }
   }
@@ -196,6 +215,8 @@ export default function SignupPage() {
           </div>
         </div>
 
+        <TurnstileField ref={turnstileRef} onToken={setCaptchaToken} />
+
         {error && (
           <p className="text-danger text-sm bg-danger/10 px-3 py-2 rounded-lg">
             {error}
@@ -204,7 +225,7 @@ export default function SignupPage() {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || (isTurnstileEnabled && !captchaToken)}
           className={cn(
             "w-full py-3 rounded-lg font-semibold",
             "bg-primary text-background",

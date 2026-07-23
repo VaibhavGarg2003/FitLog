@@ -8,20 +8,27 @@
  */
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Dumbbell, Mail, Lock, Globe } from "lucide-react";
 import { APP_NAME } from "@/lib/utils/constants";
 import { cn } from "@/lib/utils/cn";
 import { safeRedirectPath } from "@/lib/utils/safe-redirect";
+import {
+  TurnstileField,
+  isTurnstileEnabled,
+  type TurnstileFieldHandle,
+} from "@/components/auth/turnstile-field";
 
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const turnstileRef = useRef<TurnstileFieldHandle>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,17 +46,29 @@ export function LoginForm() {
     setLoading(true);
     setError(null);
 
+    if (isTurnstileEnabled && !captchaToken) {
+      setError("Please complete the human verification.");
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          ...(captchaToken ? { captchaToken } : {}),
+        }),
       });
 
       const data = (await res.json().catch(() => ({}))) as { error?: string };
 
       if (!res.ok) {
         setError(data.error ?? "Invalid email or password");
+        // Turnstile tokens are single-use — refresh after any failure.
+        turnstileRef.current?.reset();
         setLoading(false);
         return;
       }
@@ -59,6 +78,7 @@ export function LoginForm() {
       router.refresh();
     } catch {
       setError("Something went wrong. Please try again.");
+      turnstileRef.current?.reset();
       setLoading(false);
     }
   }
@@ -164,6 +184,8 @@ export function LoginForm() {
           </div>
         </div>
 
+        <TurnstileField ref={turnstileRef} onToken={setCaptchaToken} />
+
         {(error || urlError) && (
           <div className="text-danger text-sm bg-danger/10 px-3 py-2 rounded-lg space-y-1">
             <p>{error ?? urlError}</p>
@@ -180,7 +202,7 @@ export function LoginForm() {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || (isTurnstileEnabled && !captchaToken)}
           className={cn(
             "w-full py-3 rounded-lg font-semibold",
             "bg-primary text-background",

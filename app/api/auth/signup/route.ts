@@ -13,6 +13,9 @@ import { createClient } from "@/lib/supabase/server";
 const signupSchema = z.object({
   email: z.string().email().max(254),
   password: z.string().min(6).max(200),
+  // Cloudflare Turnstile token (production). Supabase verifies with the
+  // Secret Key configured in Dashboard → Auth → CAPTCHA.
+  captchaToken: z.string().min(1).max(2048).optional(),
 });
 
 export async function POST(request: Request) {
@@ -43,14 +46,17 @@ export async function POST(request: Request) {
       // Confirmation email lands on our dedicated page (not the marketing home).
       // Must be allowlisted in Supabase → Auth → URL Configuration → Redirect URLs.
       emailRedirectTo: `${origin}/confirmed`,
+      ...(parsed.data.captchaToken
+        ? { captchaToken: parsed.data.captchaToken }
+        : {}),
     },
   });
 
   if (error) {
-    return NextResponse.json(
-      { error: "Could not create account. Try a different email or try again." },
-      { status: 400 }
-    );
+    const message = /captcha|turnstile/i.test(error.message)
+      ? "Human verification failed. Please try again."
+      : "Could not create account. Try a different email or try again.";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   // DUPLICATE-EMAIL TRAP: with Supabase's email-enumeration protection ON

@@ -20,6 +20,9 @@ import { createClient } from "@/lib/supabase/server";
 const loginSchema = z.object({
   email: z.string().email().max(254),
   password: z.string().min(1).max(200),
+  // Cloudflare Turnstile token (production). Supabase verifies with the
+  // Secret Key configured in Dashboard → Auth → CAPTCHA.
+  captchaToken: z.string().min(1).max(2048).optional(),
 });
 
 export async function POST(request: Request) {
@@ -42,6 +45,9 @@ export async function POST(request: Request) {
   const { error } = await supabase.auth.signInWithPassword({
     email: parsed.data.email,
     password: parsed.data.password,
+    options: parsed.data.captchaToken
+      ? { captchaToken: parsed.data.captchaToken }
+      : undefined,
   });
 
   if (error) {
@@ -49,7 +55,9 @@ export async function POST(request: Request) {
     const message =
       error.message === "Email not confirmed"
         ? "Please confirm your email before signing in."
-        : "Invalid email or password";
+        : /captcha|turnstile/i.test(error.message)
+          ? "Human verification failed. Please try again."
+          : "Invalid email or password";
     return NextResponse.json({ error: message }, { status: 401 });
   }
 
