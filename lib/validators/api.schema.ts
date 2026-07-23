@@ -159,6 +159,17 @@ export const updateProfileSchema = z
     message: "At least one field must be provided",
   });
 
+// ─── POST /api/share — create a share link for a template ────
+// `kind` is fixed server-side (WORKOUT_TEMPLATE), never taken from the body.
+// A provided title must be non-blank AFTER trimming — a whitespace-only
+// title is meaningless and would otherwise fall back inconsistently; when
+// omitted the server defaults to the template's own name.
+export const createShareSchema = z.object({
+  templateId: z.string().min(1),
+  title: z.string().trim().min(1).max(120).optional(),
+  expiresInDays: z.number().int().min(1).max(365).optional(),
+});
+
 // ─── POST /api/ai/parse-meal — AI meal parsing ───────────────
 export const parseMealRequestSchema = z.object({
   text: z

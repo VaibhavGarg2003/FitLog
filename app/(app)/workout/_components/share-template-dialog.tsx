@@ -5,11 +5,16 @@
  * ═════════════════════
  *
  * Creates a share link for a template and presents it for distribution —
- * Copy link + Share on WhatsApp (the primary channel). Creating the link
- * is the snapshot moment (server-side); this dialog just surfaces the slug.
+ * Copy link + Share on WhatsApp (the primary channel).
+ *
+ * Creation is an EXPLICIT action (a button click), never a side-effect of
+ * the dialog opening. Creating-on-open meant React StrictMode's double-
+ * invoked effect minted TWO links per open, and opening-then-closing left
+ * an orphan link the user never used. A link is a real, revocable resource;
+ * it should be born from an intent, not a render.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useCreateShare, shareUrl } from "@/lib/hooks/use-share";
 import type { WorkoutTemplate } from "@/lib/hooks/use-templates";
 
@@ -24,22 +29,20 @@ export function ShareTemplateDialog({
   const [url, setUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Create the link once when the dialog opens.
-  useEffect(() => {
-    let cancelled = false;
-    createShare
-      .mutateAsync({ templateId: template.id, title: template.name })
-      .then((res) => {
-        if (!cancelled) setUrl(shareUrl(res.slug));
-      })
-      .catch(() => {
-        /* error surfaced via createShare.isError */
+  async function handleCreate() {
+    // One dialog → at most one link. Guard against a double-click and
+    // against re-creating once we already hold a URL.
+    if (url || createShare.isPending) return;
+    try {
+      const res = await createShare.mutateAsync({
+        templateId: template.id,
+        title: template.name,
       });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      setUrl(shareUrl(res.slug));
+    } catch {
+      /* surfaced via createShare.isError below */
+    }
+  }
 
   const waText = encodeURIComponent(
     `Check out my "${template.name}" workout on FitLog: ${url ?? ""}`
@@ -60,15 +63,7 @@ export function ShareTemplateDialog({
           </button>
         </div>
 
-        {createShare.isError ? (
-          <p className="text-sm text-red-400">
-            {createShare.error instanceof Error
-              ? createShare.error.message
-              : "Couldn't create a share link."}
-          </p>
-        ) : !url ? (
-          <p className="text-sm text-text-muted">Creating your link…</p>
-        ) : (
+        {url ? (
           <div className="space-y-3">
             <p className="text-xs text-text-secondary">
               Anyone with this link can view the plan (no login needed) and copy
@@ -104,6 +99,35 @@ export function ShareTemplateDialog({
             >
               Share on WhatsApp
             </a>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-text-secondary">
+              Create a public link anyone can open (no login needed) to view this
+              plan and copy it to their own account. It expires in 90 days — you
+              can revoke it any time under Settings → Shared links.
+            </p>
+
+            {createShare.isError && (
+              <p className="text-sm text-red-400">
+                {createShare.error instanceof Error
+                  ? createShare.error.message
+                  : "Couldn't create a share link."}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={createShare.isPending}
+              className="w-full py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {createShare.isPending
+                ? "Creating…"
+                : createShare.isError
+                  ? "Try again"
+                  : "Create share link"}
+            </button>
           </div>
         )}
       </div>

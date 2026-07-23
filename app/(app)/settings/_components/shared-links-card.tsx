@@ -24,18 +24,47 @@ function statusLabel(link: MyShareLink): { text: string; muted: boolean } {
   return { text: "Active", muted: false };
 }
 
-export function SharedLinksCard() {
-  const { data: links, isLoading } = useMyShares();
-  const revoke = useRevokeShare();
-  const [copied, setCopied] = useState<string | null>(null);
-
-  if (isLoading || !links || links.length === 0) return null;
-
+function CardShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-3">
       <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
         Shared Links
       </h2>
+      {children}
+    </div>
+  );
+}
+
+export function SharedLinksCard() {
+  const { data: links, isLoading, isError, refetch, isFetching } = useMyShares();
+  const revoke = useRevokeShare();
+  const [copied, setCopied] = useState<string | null>(null);
+
+  // A failed load (e.g. the share service is cold) must NOT silently hide the
+  // card — the user would have no way to see or revoke their links. Show the
+  // error with a retry instead.
+  if (isError) {
+    return (
+      <CardShell>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-text-muted">Couldn’t load your shared links.</p>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="text-xs text-primary font-medium hover:underline disabled:opacity-50 shrink-0"
+          >
+            {isFetching ? "Retrying…" : "Retry"}
+          </button>
+        </div>
+      </CardShell>
+    );
+  }
+
+  if (isLoading || !links || links.length === 0) return null;
+
+  return (
+    <CardShell>
       <div className="divide-y divide-border">
         {links.map((link) => {
           const status = statusLabel(link);
@@ -80,6 +109,6 @@ export function SharedLinksCard() {
           );
         })}
       </div>
-    </div>
+    </CardShell>
   );
 }

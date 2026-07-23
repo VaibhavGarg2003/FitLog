@@ -99,24 +99,37 @@ export default async function SharePage({
 }) {
   const { slug } = await params;
   const [{ status, data }, viewerId] = await Promise.all([
-    fetchShare(slug),
-    getAuthUserId(),
+    // A thrown fetch (Django unconfigured, unreachable, or a free-tier
+    // cold-start timeout) must NOT 500 this page — degrade to the friendly
+    // landing below. A dead link is never a dead end (see file header).
+    fetchShare(slug).catch(() => ({ status: 503, data: {} as { error?: string } })),
+    // The viewer-check only decides which CTA to show. A hiccup here (auth
+    // service blip) must never 500 a PUBLIC page whose plan loaded fine —
+    // fall back to "logged out" (shows the sign-up CTA, still functional).
+    getAuthUserId().catch(() => null),
   ]);
 
-  // ── Expired / revoked / not found → friendly landing page ──
+  // ── Expired / revoked / not found / unavailable → friendly landing page ──
   if (status !== 200) {
     const gone = status === 410;
+    const unavailable = status >= 500;
     return (
       <Shell>
         <div className="text-center space-y-4">
           <Dumbbell className="mx-auto text-primary" size={44} />
           <h1 className="text-xl font-bold text-text-primary">
-            {gone ? "This link has expired" : "Plan not found"}
+            {unavailable
+              ? "Couldn't load this plan"
+              : gone
+                ? "This link has expired"
+                : "Plan not found"}
           </h1>
           <p className="text-text-secondary text-sm">
-            {gone
-              ? "The person who shared this plan has since removed it or it expired."
-              : "This share link doesn't exist."}
+            {unavailable
+              ? "We couldn't reach the sharing service just now. Please refresh in a moment."
+              : gone
+                ? "The person who shared this plan has since removed it or it expired."
+                : "This share link doesn't exist."}
           </p>
           <MarketingCTA />
         </div>

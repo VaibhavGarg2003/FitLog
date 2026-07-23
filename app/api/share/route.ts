@@ -11,13 +11,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { djangoAuthedFetch } from "@/lib/services/django.service";
+import { createShareSchema } from "@/lib/validators/api.schema";
 import { handleRouteError } from "@/lib/utils/errors";
-
-const createShareSchema = z.object({
-  templateId: z.string().min(1),
-  title: z.string().trim().max(120).optional(),
-  expiresInDays: z.number().int().min(1).max(365).optional(),
-});
 
 export async function GET() {
   try {

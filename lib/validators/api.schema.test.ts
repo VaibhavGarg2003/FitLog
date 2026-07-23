@@ -15,6 +15,7 @@ import {
   finishSessionSchema,
   logWeightSchema,
   parseMealRequestSchema,
+  createShareSchema,
 } from "@/lib/validators/api.schema";
 
 describe("logCustomFoodSchema", () => {
@@ -161,5 +162,37 @@ describe("parseMealRequestSchema", () => {
       parseMealRequestSchema.safeParse({ text: "dal", mealType: "LUNCH" })
         .success
     ).toBe(false);
+  });
+});
+
+describe("createShareSchema", () => {
+  const valid = { templateId: "tpl-1" };
+
+  it("accepts a minimal request (title is optional)", () => {
+    expect(createShareSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("trims a provided title", () => {
+    const r = createShareSchema.safeParse({ ...valid, title: "  Push Day  " });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.title).toBe("Push Day");
+  });
+
+  it("rejects a whitespace-only title (the blank-title slip)", () => {
+    expect(
+      createShareSchema.safeParse({ ...valid, title: "   " }).success
+    ).toBe(false);
+  });
+
+  it("rejects a missing or empty templateId", () => {
+    expect(createShareSchema.safeParse({ title: "x" }).success).toBe(false);
+    expect(createShareSchema.safeParse({ templateId: "" }).success).toBe(false);
+  });
+
+  it("enforces expiresInDays as an integer within 1–365", () => {
+    expect(createShareSchema.safeParse({ ...valid, expiresInDays: 90 }).success).toBe(true);
+    expect(createShareSchema.safeParse({ ...valid, expiresInDays: 0 }).success).toBe(false);
+    expect(createShareSchema.safeParse({ ...valid, expiresInDays: 366 }).success).toBe(false);
+    expect(createShareSchema.safeParse({ ...valid, expiresInDays: 1.5 }).success).toBe(false);
   });
 });
