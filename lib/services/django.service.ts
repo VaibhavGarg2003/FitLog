@@ -66,9 +66,14 @@ async function rawFetch<T>(
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
+  // Resolve the base URL OUTSIDE the try: a missing DJANGO_URL is a config
+  // error, not a network failure, and must surface as its own message rather
+  // than being masked by the generic "unavailable" catch below.
+  const base = djangoBaseUrl();
+
   let res: Response;
   try {
-    res = await fetch(`${djangoBaseUrl()}${path}`, {
+    res = await fetch(`${base}${path}`, {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -76,9 +81,14 @@ async function rawFetch<T>(
       signal: AbortSignal.timeout(60_000),
       cache: "no-store",
     });
-  } catch {
+  } catch (err) {
+    // Distinguish a cold-start timeout from a genuine connectivity failure so
+    // the message tells the user what to actually do.
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
     throw new UpstreamError(
-      "The sharing service is unavailable. Please try again in a moment."
+      timedOut
+        ? "The sharing service is waking up (free-tier cold start). Please try again in a moment."
+        : "The sharing service is unavailable. Please try again in a moment."
     );
   }
 
