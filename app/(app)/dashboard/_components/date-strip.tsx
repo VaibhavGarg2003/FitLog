@@ -30,10 +30,12 @@ export function DateStrip() {
 
   const today = localDateStr();
 
-  // Generate 7 dates: 3 before today, today, 3 after today
+  // TEMPORARY (weekly-insights testing): last 6 days + today = 7 loggable days.
+  // Revert to the centered layout below when done testing.
+  //   const d = new Date(); d.setDate(d.getDate() + (i - 3)); // 3 before, today, 3 after
   const dates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
-    d.setDate(d.getDate() + (i - 3)); // i=0 → -3 days, i=3 → today, i=6 → +3 days
+    d.setDate(d.getDate() + (i - 6)); // i=0 → -6 days, i=6 → today
     return d;
   });
 
