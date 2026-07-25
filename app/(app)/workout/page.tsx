@@ -72,10 +72,10 @@ export default function WorkoutPage() {
     isCompound: boolean;
   } | null>(null);
 
-  // setsLogged = sets for the CURRENT exercise (resets when changing exercise)
-  const [setsLogged, setSetsLogged] = useState(0);
-  // NOTE: totalSetsInSession is DERIVED from server data below (activeSets),
-  // not tracked as state — so editing/deleting sets keeps the count truthful.
+  // NOTE: neither the per-exercise set count nor totalSetsInSession is state.
+  // Both are DERIVED from server data below (activeSets), so editing or
+  // deleting a set immediately corrects the "Log Set N" label, the session
+  // count, and the finish validation.
 
   const [showFinish, setShowFinish] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
@@ -141,18 +141,22 @@ export default function WorkoutPage() {
     if (!activeSessionId || !activeExercise) {
       throw new Error("No active session");
     }
-    // Rethrow on failure so SetLogger keeps the form (and does not treat this
-    // as a successful "previous set" for the copy button).
+    // Next number = one past the highest this exercise already has. The server
+    // keeps numbering contiguous, so this equals "count + 1" — but taking the
+    // max means a stale read can never produce a DUPLICATE set number.
+    const nextSetNumber =
+      activeExerciseSets.reduce((max, s) => Math.max(max, s.setNumber), 0) + 1;
+
+    // Rethrow on failure so SetLogger keeps the form and shows an error.
     await logSet.mutateAsync({
       sessionId: activeSessionId,
       exerciseId: activeExercise.id,
-      setNumber: setsLogged + 1,
+      setNumber: nextSetNumber,
       weight: data.weight,
       reps: data.reps,
       rpe: data.rpe,
       isWarmup: data.isWarmup,
     });
-    setSetsLogged((prev) => prev + 1);
   }
 
   // Called when user taps "Finish Workout" button
@@ -174,7 +178,6 @@ export default function WorkoutPage() {
     setActiveSessionId(null);
     setActiveSessionDate(null);
     setActiveExercise(null);
-    setSetsLogged(0);
     setShowFinish(false);
     setFinishError(null);
     setConfirmingCancel(false);
@@ -223,7 +226,6 @@ export default function WorkoutPage() {
       // Reset all session state
       setActiveSessionId(null);
       setActiveExercise(null);
-      setSetsLogged(0);
       setShowFinish(false);
       setPlannedExercises(null);
       setDoneExerciseIds(new Set());
@@ -255,14 +257,18 @@ export default function WorkoutPage() {
   // validation and the completion card honest.
   const totalSetsInSession = activeSets.length;
 
-  // Reopen a logged exercise to add more sets — numbering continues after the
-  // highest existing set number (deletes can leave gaps; length would collide).
-  function handleEditExercise(
-    exercise: ActiveSet["exercise"],
-    nextSetNumber: number
-  ) {
+  // The active exercise's own sets, ascending — this is what drives "Set N"
+  // and the editable list inside the logger.
+  const activeExerciseSets = activeExercise
+    ? activeSets
+        .filter((s) => s.exercise.id === activeExercise.id)
+        .sort((a, b) => a.setNumber - b.setNumber)
+    : [];
+
+  // Reopen a logged exercise. No set count is passed: the logger derives its
+  // own numbering from the server, so it can't drift after an edit or delete.
+  function handleEditExercise(exercise: ActiveSet["exercise"]) {
     setActiveExercise(exercise);
-    setSetsLogged(nextSetNumber - 1);
     setShowFinish(false);
   }
 
@@ -292,12 +298,19 @@ export default function WorkoutPage() {
     plannedExercises && plannedExercises.length > 0 ? (
       <div className="bg-surface rounded-2xl border border-border divide-y divide-border overflow-hidden">
         {plannedExercises.map((planned) => {
+          // Sets already logged for this planned exercise (server truth).
+          const loggedCount = activeSets.filter(
+            (s) => s.exercise.id === planned.exerciseId
+          ).length;
           const done = doneExerciseIds.has(planned.exerciseId);
           const isCurrent = activeExercise?.id === planned.exerciseId;
           return (
             <button
               key={planned.exerciseId}
               type="button"
+              // Reopening a ticked exercise resumes it — the logger shows its
+              // logged sets for editing and continues the numbering, instead
+              // of restarting at "Set 1" on top of what's already there.
               onClick={() => {
                 setActiveExercise({
                   id: planned.exerciseId,
@@ -307,7 +320,6 @@ export default function WorkoutPage() {
                   metValue: planned.metValue,
                   isCompound: planned.isCompound,
                 });
-                setSetsLogged(0);
                 setShowFinish(false);
               }}
               className={`w-full p-3 px-4 flex items-center gap-3 text-left hover:bg-surface-hover transition-colors ${
@@ -328,8 +340,12 @@ export default function WorkoutPage() {
                   {planned.name}
                 </span>
                 <span className="block text-xs text-text-muted">
-                  {planned.muscleGroup} · {planned.targetSets} set
-                  {planned.targetSets !== 1 ? "s" : ""} planned
+                  {planned.muscleGroup} ·{" "}
+                  {loggedCount > 0
+                    ? `${loggedCount} of ${planned.targetSets} logged — tap to edit`
+                    : `${planned.targetSets} set${
+                        planned.targetSets !== 1 ? "s" : ""
+                      } planned`}
                 </span>
               </span>
             </button>
@@ -450,23 +466,23 @@ export default function WorkoutPage() {
           <div className="space-y-4 lg:col-span-7">
             {activeExercise ? (
               <SetLogger
-                // key: switching exercises remounts the logger, resetting its
-                // form + previous-set memory (replaces a setState-in-effect).
+                // key: switching exercises remounts the logger, resetting the
+                // form (replaces a setState-in-effect).
                 key={activeExercise.id}
-                exerciseId={activeExercise.id}
                 exerciseName={activeExercise.name}
-                setsLogged={setsLogged}
+                existingSets={activeExerciseSets}
+                sessionId={activeSessionId}
+                date={selectedDate}
                 isPending={logSet.isPending}
                 onLogSet={handleLogSet}
                 onDone={() => {
                   // If this exercise was part of the template plan and got at
                   // least one set, tick it off the checklist.
-                  if (setsLogged > 0) {
+                  if (activeExerciseSets.length > 0) {
                     const finishedId = activeExercise.id;
                     setDoneExerciseIds((prev) => new Set(prev).add(finishedId));
                   }
                   setActiveExercise(null);
-                  setSetsLogged(0);
                 }}
               />
             ) : showFinish ? (
@@ -674,10 +690,7 @@ export default function WorkoutPage() {
       <ExerciseBrowser
         isOpen={showBrowser}
         onClose={() => setShowBrowser(false)}
-        onSelect={(exercise) => {
-          setActiveExercise(exercise);
-          setSetsLogged(0);
-        }}
+        onSelect={(exercise) => setActiveExercise(exercise)}
       />
 
       {/* Save-as-template picker — driven by savingSessionId, sourced from the

@@ -230,20 +230,58 @@ export async function updateSetForUser(
 
 /**
  * Owner-scoped set delete (same relation-filter pattern as update above).
+ *
+ * RENUMBERING — why the delete is not just a deleteMany:
+ * ──────────────────────────────────────────────────────
+ * `setNumber` is the user-facing "Set 3" label, so it must always read as a
+ * contiguous 1..n per exercise. A plain delete leaves holes: deleting set 3
+ * of 3 used to leave [1,2] but the logger still offered "Set 4", and deleting
+ * the MIDDLE set left [1,3] — so the next set would have collided on 3.
+ *
+ * After removing the row we renumber that exercise's remaining sets in
+ * ascending order inside the same transaction. Numbers only ever move DOWN,
+ * and the whole thing is atomic, so a reader never sees a half-renumbered
+ * exercise. With this invariant the client can simply use "count + 1" as the
+ * next set number.
  */
 export async function deleteSetForUser(
   setId: string,
   sessionId: string,
   userId: string
 ) {
-  const result = await prisma.exerciseSet.deleteMany({
-    where: {
-      id: setId,
-      sessionId,
-      session: { userId, status: "IN_PROGRESS" },
-    },
+  return prisma.$transaction(async (tx) => {
+    // Owner-scoped read first — we need the exerciseId to know what to
+    // renumber, and this doubles as the permission check.
+    const target = await tx.exerciseSet.findFirst({
+      where: {
+        id: setId,
+        sessionId,
+        session: { userId, status: "IN_PROGRESS" },
+      },
+      select: { id: true, exerciseId: true },
+    });
+    if (!target) return false;
+
+    await tx.exerciseSet.delete({ where: { id: target.id } });
+
+    const remaining = await tx.exerciseSet.findMany({
+      where: { sessionId, exerciseId: target.exerciseId },
+      orderBy: { setNumber: "asc" },
+      select: { id: true, setNumber: true },
+    });
+
+    for (let i = 0; i < remaining.length; i++) {
+      const expected = i + 1;
+      if (remaining[i].setNumber !== expected) {
+        await tx.exerciseSet.update({
+          where: { id: remaining[i].id },
+          data: { setNumber: expected },
+        });
+      }
+    }
+
+    return true;
   });
-  return result.count > 0;
 }
 
 /**

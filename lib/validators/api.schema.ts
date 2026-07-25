@@ -51,6 +51,33 @@ export const logCustomFoodSchema = z.object({
   fat: z.number().min(0).max(1000).default(0),
 });
 
+// ─── /api/foods/custom — user-owned food entries ─────────────
+//
+// Macros are per 100g, matching the seeded `foods` table so both kinds of
+// result can be priced with identical maths. Calories are NOT cross-checked
+// against protein/carbs/fat: users copy the two numbers off a tub label and
+// those rarely reconcile exactly (rounding, fibre, sugar alcohols). Rejecting
+// a label the user is reading verbatim would be the wrong call.
+export const customFoodSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  category: z.string().trim().max(40).nullish(),
+  caloriesPer100g: z.number().min(0).max(1000),
+  proteinPer100g: z.number().min(0).max(100),
+  carbsPer100g: z.number().min(0).max(100),
+  fatPer100g: z.number().min(0).max(100),
+  fiberPer100g: z.number().min(0).max(100).nullish(),
+  defaultUnit: z.string().trim().max(20).default("g"),
+  defaultGrams: z.number().positive().max(2000).default(100),
+});
+
+// PATCH — every field optional, but at least one must be present, otherwise
+// the request is a no-op the caller probably didn't intend.
+export const updateCustomFoodSchema = customFoodSchema
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, {
+    message: "Provide at least one field to update",
+  });
+
 // ─── POST /api/workout — start a session ─────────────────────
 export const startWorkoutSchema = z.object({
   date: dateStrSchema.optional(),
@@ -61,12 +88,18 @@ export const startWorkoutSchema = z.object({
 });
 
 // ─── POST /api/workout/[id]/sets — log a set ─────────────────
+//
+// weight/reps are POSITIVE, not just non-negative: a set at 0 kg or 0 reps
+// isn't a set, and a negative load is nonsense the volume maths would happily
+// consume. rpe is the 1-5 "Intensity" scale the UI actually offers — the old
+// 1-10 RPE bound let the inline set editor save a 7 that no picker could
+// produce and no label could describe.
 export const logSetSchema = z.object({
   exerciseId: z.string().min(1),
   setNumber: z.number().int().min(1).max(100),
-  weight: z.number().min(0).max(1000).optional(),
-  reps: z.number().int().min(0).max(200).optional(),
-  rpe: z.number().int().min(1).max(10).optional(),
+  weight: z.number().positive().max(1000).optional(),
+  reps: z.number().int().positive().max(200).optional(),
+  rpe: z.number().int().min(1).max(5).optional(),
   isWarmup: z.boolean().default(false),
 });
 
@@ -110,11 +143,13 @@ export const startFromTemplateSchema = z.object({
 // ─── PATCH /api/workout/[id]/sets — edit one logged set ──────
 // All fields optional except setId: the client sends only what changed.
 // rpe accepts null so the user can CLEAR an intensity they set by mistake.
+// Same bounds as logSetSchema — editing a set must not be a way around the
+// rules that logging one enforces.
 export const updateSetSchema = z.object({
   setId: z.string().min(1),
-  weight: z.number().min(0).max(1000).optional(),
-  reps: z.number().int().min(0).max(200).optional(),
-  rpe: z.number().int().min(1).max(10).nullable().optional(),
+  weight: z.number().positive().max(1000).optional(),
+  reps: z.number().int().positive().max(200).optional(),
+  rpe: z.number().int().min(1).max(5).nullable().optional(),
   isWarmup: z.boolean().optional(),
 });
 

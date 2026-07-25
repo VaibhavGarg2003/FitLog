@@ -6,6 +6,15 @@
  * useStartSession()    — mutation to start a new session
  * useLogSet()          — mutation to add a set to a session
  * useFinishSession()   — mutation to complete a session (calculates burn)
+ *
+ * SET MUTATIONS RETURN THEIR INVALIDATION:
+ * ────────────────────────────────────────
+ * useLogSet / useUpdateSet / useDeleteSet `return` the invalidateQueries
+ * promise from onSuccess, so `mutateAsync` only resolves once the sessions
+ * query has REFETCHED. The workout page derives "Set N" and the session set
+ * count straight from that query, so resolving early would leave the logger
+ * one set behind (and, after a delete, offering a set number the server had
+ * just renumbered away).
  */
 
 "use client";
@@ -68,9 +77,8 @@ export function useLogSet(date: string) {
       if (!res.ok) throw new Error("Failed to add set");
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] }),
   });
 }
 
@@ -95,9 +103,8 @@ export function useUpdateSet(date: string) {
       if (!res.ok) throw new Error("Failed to update set");
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] }),
   });
 }
 
@@ -114,9 +121,8 @@ export function useDeleteSet(date: string) {
       if (!res.ok) throw new Error("Failed to delete set");
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] }),
   });
 }
 

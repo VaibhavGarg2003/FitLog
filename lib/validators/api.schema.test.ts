@@ -12,6 +12,7 @@ import {
   logCustomFoodSchema,
   startWorkoutSchema,
   logSetSchema,
+  updateSetSchema,
   finishSessionSchema,
   logWeightSchema,
   parseMealRequestSchema,
@@ -113,14 +114,57 @@ describe("logSetSchema", () => {
     expect(logSetSchema.safeParse(valid).success).toBe(true);
   });
 
-  it("rejects RPE outside 1-10", () => {
+  // Intensity is the 1-5 scale the UI offers, not the old 1-10 RPE.
+  it("accepts intensity at the 1-5 bounds", () => {
+    expect(logSetSchema.safeParse({ ...valid, rpe: 1 }).success).toBe(true);
+    expect(logSetSchema.safeParse({ ...valid, rpe: 5 }).success).toBe(true);
+  });
+
+  it("rejects intensity outside 1-5", () => {
+    expect(logSetSchema.safeParse({ ...valid, rpe: 0 }).success).toBe(false);
+    expect(logSetSchema.safeParse({ ...valid, rpe: 6 }).success).toBe(false);
     expect(logSetSchema.safeParse({ ...valid, rpe: 11 }).success).toBe(false);
+  });
+
+  it("rejects zero and negative weight", () => {
+    expect(logSetSchema.safeParse({ ...valid, weight: 0 }).success).toBe(false);
+    expect(logSetSchema.safeParse({ ...valid, weight: -5 }).success).toBe(false);
+  });
+
+  it("rejects zero and negative reps", () => {
+    expect(logSetSchema.safeParse({ ...valid, reps: 0 }).success).toBe(false);
+    expect(logSetSchema.safeParse({ ...valid, reps: -1 }).success).toBe(false);
   });
 
   it("rejects fractional set numbers", () => {
     expect(logSetSchema.safeParse({ ...valid, setNumber: 1.5 }).success).toBe(
       false
     );
+  });
+});
+
+describe("updateSetSchema", () => {
+  const valid = { setId: "set-1", weight: 60, reps: 8 };
+
+  it("accepts a valid edit", () => {
+    expect(updateSetSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("allows clearing intensity with null", () => {
+    expect(updateSetSchema.safeParse({ ...valid, rpe: null }).success).toBe(
+      true
+    );
+  });
+
+  // Editing must not be a back door around the rules logging enforces.
+  it("rejects zero/negative weight and out-of-range intensity", () => {
+    expect(updateSetSchema.safeParse({ ...valid, weight: 0 }).success).toBe(
+      false
+    );
+    expect(updateSetSchema.safeParse({ ...valid, weight: -5 }).success).toBe(
+      false
+    );
+    expect(updateSetSchema.safeParse({ ...valid, rpe: 7 }).success).toBe(false);
   });
 });
 
