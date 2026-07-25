@@ -72,6 +72,7 @@ model User {
   goals           Goal[]
   workoutTemplates WorkoutTemplate[]
   weeklyInsights  WeeklyInsight[]
+  customFoods     CustomFood[]
 
   @@map("users")
   // @@map("users") — the table in PostgreSQL is called "users" (lowercase),
@@ -396,6 +397,46 @@ model Food {
   @@index([category])
   @@map("foods")
 }
+
+// ─────────────────────────────────────────────────────────────
+// USER-OWNED FOODS (writable, unlike the seeded `foods` table)
+// ─────────────────────────────────────────────────────────────
+
+model CustomFood {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+
+  name     String
+  category String?
+
+  // ── Nutrition per 100g — same reference unit as Food, so the two can be
+  //    merged into one search result list and priced with identical maths.
+  caloriesPer100g Float  @map("calories_per_100g")
+  proteinPer100g  Float  @map("protein_per_100g")
+  carbsPer100g    Float  @map("carbs_per_100g")
+  fatPer100g      Float  @map("fat_per_100g")
+  fiberPer100g    Float? @map("fiber_per_100g")
+
+  defaultUnit  String @default("g")   @map("default_unit")
+  defaultGrams Float  @default(100)   @map("default_grams")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  // One entry per name per user — editing your whey means UPDATING the row you
+  // already have, not accumulating "Whey Protein", "Whey Protein 2"...
+  // This is what makes a brand switch propagate to all future logs.
+
+  @@index([userId])
+  @@map("custom_foods")
+}
+// NOTE: custom foods are deliberately NOT referenced by MealFood.foodId (that
+// FK points at the seeded `foods` table). A logged meal stores its own name and
+// macros, so editing your whey later changes what you log NEXT — it never
+// rewrites history. Past days keep the numbers that were true when you ate.
 
 model Exercise {
   id            String   @id @default(uuid())

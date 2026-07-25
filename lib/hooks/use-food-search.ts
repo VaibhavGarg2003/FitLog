@@ -21,7 +21,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-interface FoodResult {
+export interface FoodResult {
   id: string;
   name: string;
   nameHindi: string | null;
@@ -36,6 +36,12 @@ interface FoodResult {
   defaultGrams: number;
   restaurantMultiplier: number;
   source: string;
+  /**
+   * True for the user's own saved foods. They are NOT rows in the seeded
+   * `foods` table, so `id` is not a valid `foodId` for logging — the caller
+   * must log them by name + macros instead. See FoodSearchModal.handleLog.
+   */
+  isCustom: boolean;
 }
 
 async function searchFoods(query: string): Promise<FoodResult[]> {

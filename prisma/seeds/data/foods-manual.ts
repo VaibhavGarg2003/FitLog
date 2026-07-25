@@ -13,9 +13,19 @@ export const manualFoods: FoodSeedData[] = [
   // ═══════════════════════════════════════════
   // PROTEIN SUPPLEMENTS
   // ═══════════════════════════════════════════
-  { name: "Whey Protein (ON Gold Standard)", category: "Supplement", caloriesPer100g: 375, proteinPer100g: 78.0, carbsPer100g: 9.4, fatPer100g: 3.1, fiberPer100g: 0, defaultUnit: "scoop", defaultQuantity: 1, defaultGrams: 32 },
-  { name: "Whey Protein (MuscleBlaze)", category: "Supplement", caloriesPer100g: 380, proteinPer100g: 75.0, carbsPer100g: 12.0, fatPer100g: 3.5, fiberPer100g: 0, defaultUnit: "scoop", defaultQuantity: 1, defaultGrams: 33 },
-  { name: "Whey Protein (MyProtein Impact)", category: "Supplement", caloriesPer100g: 390, proteinPer100g: 82.0, carbsPer100g: 4.0, fatPer100g: 3.0, fiberPer100g: 0, defaultUnit: "scoop", defaultQuantity: 1, defaultGrams: 25 },
+  // ONE generic whey entry, not a brand list.
+  //
+  // WHY NOT PER-BRAND: shipping "Whey Protein (MuscleBlaze)" etc. means
+  // reproducing third-party label data under their trade names, and it goes
+  // stale the moment a brand reformulates. It also can't win — no list covers
+  // every brand, so most users would be picking an approximate match anyway.
+  //
+  // These numbers are the mean of the three brand rows this replaces
+  // (375/380/390 kcal, 78/75/82 P, 9.4/12/4 C, 3.1/3.5/3 F, 32/33/25 g scoop).
+  // A user whose tub differs — isolate, a blend, anything — saves their own
+  // macros as a CustomFood instead of hunting for their brand. See
+  // lib/services/custom-food.service.ts.
+  { name: "Whey Protein", category: "Supplement", caloriesPer100g: 382, proteinPer100g: 78.3, carbsPer100g: 8.5, fatPer100g: 3.2, fiberPer100g: 0, defaultUnit: "scoop", defaultQuantity: 1, defaultGrams: 30 },
   { name: "Casein Protein", category: "Supplement", caloriesPer100g: 370, proteinPer100g: 80.0, carbsPer100g: 4.5, fatPer100g: 2.0, fiberPer100g: 0, defaultUnit: "scoop", defaultQuantity: 1, defaultGrams: 33 },
   { name: "Mass Gainer", category: "Supplement", caloriesPer100g: 400, proteinPer100g: 20.0, carbsPer100g: 70.0, fatPer100g: 5.0, fiberPer100g: 2.0, defaultUnit: "scoop", defaultQuantity: 1, defaultGrams: 75 },
   { name: "Plant Protein (Pea + Rice)", category: "Supplement", caloriesPer100g: 370, proteinPer100g: 75.0, carbsPer100g: 8.0, fatPer100g: 5.0, fiberPer100g: 3.0, defaultUnit: "scoop", defaultQuantity: 1, defaultGrams: 30 },
