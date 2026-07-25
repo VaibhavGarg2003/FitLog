@@ -38,9 +38,21 @@ export async function GET(request: Request) {
     // foods. The user's entries are listed FIRST — someone who has saved their
     // whey macros means "use these", so making them scroll past the generic
     // average would defeat the point of saving them.
+    //
+    // The custom-food lookup is NON-FATAL: seeded search must never go down
+    // because the per-user table is unavailable. This exact failure — the
+    // custom_foods table missing on an environment where the migration hadn't
+    // run yet — took the whole food search offline once. Degrade to
+    // seeded-only instead of 500ing the request.
     const [seeded, custom] = await Promise.all([
       searchFoodsByName(query, limit),
-      findCustomFoods(userId, query, limit),
+      findCustomFoods(userId, query, limit).catch((error) => {
+        console.error(
+          "[foods/search] custom food lookup failed, using seeded only:",
+          error
+        );
+        return [];
+      }),
     ]);
 
     const foods = [
