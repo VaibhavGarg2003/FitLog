@@ -30,6 +30,7 @@
  */
 import type { Metadata } from "next";
 import { Inter, Outfit } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { APP_NAME, APP_DESCRIPTION } from "@/lib/utils/constants";
 import "./globals.css";
@@ -87,6 +88,7 @@ export default function RootLayout({
               can use useQuery() / useMutation() hooks */}
           {children}
         </QueryProvider>
+        <Analytics />
       </body>
     </html>
   );
