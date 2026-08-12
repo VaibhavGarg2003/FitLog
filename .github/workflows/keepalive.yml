@@ -4,11 +4,25 @@
 # WHY THIS EXISTS:
 # ────────────────
 # Supabase pauses free-tier projects after 7 days of inactivity.
-# This cron job pings our /api/health endpoint every 3 days to
-# prevent the database from going to sleep.
+# This cron job touches both databases every 3 days to keep them awake.
+#
+# HISTORY — why the checks below are so paranoid:
+# The original version curled a hardcoded fallback URL and only asserted
+# HTTP 200. That URL pointed at a stale create-react-app deployment, which
+# answers 200 with SPA HTML on *every* path — so the job reported
+# "✅ Supabase is alive" for months while never once touching Postgres.
+# Hence: no silent fallback URL, and we assert on the response BODY.
+#
+# REQUIRED REPO SECRETS:
+#   HEALTH_URL       - full URL of the prod health endpoint
+#                      (e.g. https://fit-log-lyart.vercel.app/api/health)
+#   CRON_SECRET      - must match CRON_SECRET in the Vercel project env,
+#                      otherwise /api/health returns 401
+#   DEV_DATABASE_URL - pooler connection string for the DEV Supabase project
+#                      (nothing else keeps that one alive — it is not fronted
+#                      by any deployment)
 #
 # COST: $0. GitHub Actions gives 2,000 free minutes/month.
-# A curl every 3 days uses ~10 minutes/month.
 
 name: Supabase Keep-Alive
 
@@ -19,15 +33,64 @@ on:
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:
-  ping:
+  ping-prod:
+    name: Prod DB (via /api/health)
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Health Endpoint
+      - name: Ping health endpoint
+        env:
+          HEALTH_URL: ${{ secrets.HEALTH_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.HEALTH_URL || 'https://fitlog.vercel.app/api/health' }})
-          echo "Health check response: $response"
-          if [ "$response" != "200" ]; then
-            echo "⚠️ Health check failed with status $response"
+          set -euo pipefail
+
+          if [ -z "${HEALTH_URL}" ]; then
+            echo "::error::HEALTH_URL secret is not set. Refusing to guess a URL."
             exit 1
           fi
-          echo "✅ Supabase is alive"
+
+          body=$(mktemp)
+          code=$(curl -sS -m 30 -o "$body" -w "%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${HEALTH_URL}")
+
+          echo "HTTP $code"
+          cat "$body"
+          echo
+
+          if [ "$code" != "200" ]; then
+            echo "::error::Health check returned HTTP $code (expected 200)"
+            exit 1
+          fi
+
+          # HTTP 200 alone proves nothing — a static site returns 200 for any
+          # path. Require the JSON that only the real handler can produce.
+          if ! grep -q '"database":"connected"' "$body"; then
+            echo "::error::Response did not report database:connected — the database was NOT touched"
+            exit 1
+          fi
+
+          echo "✅ Prod Supabase is alive"
+
+  ping-dev:
+    name: Dev DB (direct query)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query dev database
+        env:
+          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DEV_DATABASE_URL}" ]; then
+            echo "::error::DEV_DATABASE_URL secret is not set."
+            exit 1
+          fi
+
+          out=$(psql "${DEV_DATABASE_URL}" -At -c "select 'alive:' || now()")
+          echo "$out"
+
+          case "$out" in
+            alive:*) echo "✅ Dev Supabase is alive" ;;
+            *) echo "::error::Unexpected query result"; exit 1 ;;
+          esac
