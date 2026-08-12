@@ -162,6 +162,14 @@ export function CustomFoodForm({
 
       <div>
         <p className="text-sm text-text-secondary mb-2">Per 100g</p>
+        {/* Concentrate vs isolate is really a protein-per-100g difference —
+            tell the user the ballpark so they can sanity-check their tub. */}
+        {initial.defaultUnit === "scoop" && (
+          <p className="text-xs text-text-muted mb-2 -mt-1">
+            Whey concentrate is ~75–82g protein / 100g; isolate ~85–90g. Use the
+            &ldquo;per 100g&rdquo; column on your label — not the per-scoop one.
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-3">
           {NUM_FIELDS.map((f) => (
             <div key={f.key}>

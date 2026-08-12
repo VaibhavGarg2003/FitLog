@@ -47,6 +47,12 @@ export function FoodSearchModal({
   const [query, setQuery] = useState("");
   const [selectedFood, setSelectedFood] = useState<FoodResult | null>(null);
   const [quantity, setQuantity] = useState("100");
+  // Scoop-based supplements (whey, casein, gainer...) are logged by SCOOPS,
+  // not grams — nobody eats 100g of protein powder. `scoops` × `scoopGrams`
+  // gives the grams we actually store, and scoopGrams is editable because a
+  // scoop is 25-40g depending on the brand.
+  const [scoops, setScoops] = useState("1");
+  const [scoopGrams, setScoopGrams] = useState("30");
   const [isRestaurant, setIsRestaurant] = useState(false);
   const [editingMacros, setEditingMacros] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
@@ -59,15 +65,40 @@ export function FoodSearchModal({
 
   if (!isOpen) return null;
 
-  const quantityNum = parseFloat(quantity) || 0;
+  // A "scoop" food thinks in scoops; everything else thinks in grams.
+  const isScoopFood = selectedFood?.defaultUnit === "scoop";
+  const scoopGramsNum = parseFloat(scoopGrams) || 0;
+  const scoopsNum = parseFloat(scoops) || 0;
+  // Grams to actually log — the one number the DB and macros are computed from.
+  const quantityNum = isScoopFood
+    ? scoopsNum * scoopGramsNum
+    : parseFloat(quantity) || 0;
   const previewCalories = selectedFood
     ? Math.round((selectedFood.caloriesPer100g * quantityNum) / 100)
     : 0;
+
+  /** Scale a per-100g figure to `grams`, rounded to 1 dp. */
+  const per = (per100g: number, grams: number) =>
+    Math.round((per100g * grams) / 100 * 10) / 10;
+
+  /** Select a food and seed the right serving default for its unit. */
+  function selectFood(food: FoodResult) {
+    setSelectedFood(food);
+    setLogError(null);
+    if (food.defaultUnit === "scoop") {
+      setScoops("1");
+      setScoopGrams(String(food.defaultGrams || 30));
+    } else {
+      setQuantity(String(food.defaultGrams));
+    }
+  }
 
   function resetAndClose() {
     setSelectedFood(null);
     setQuery("");
     setQuantity("100");
+    setScoops("1");
+    setScoopGrams("30");
     setIsRestaurant(false);
     setEditingMacros(false);
     setLogError(null);
@@ -180,8 +211,9 @@ export function FoodSearchModal({
               initial={selectedFood}
               isExisting={selectedFood.isCustom}
               onSaved={(saved) => {
-                // Continue straight into logging the food just saved.
-                setSelectedFood({
+                // Continue straight into logging the food just saved, seeding
+                // the correct serving default for its unit (scoop vs grams).
+                selectFood({
                   ...saved,
                   nameHindi: null,
                   defaultQuantity: 1,
@@ -189,7 +221,6 @@ export function FoodSearchModal({
                   source: "CUSTOM",
                   isCustom: true,
                 });
-                setQuantity(String(saved.defaultGrams));
                 setEditingMacros(false);
               }}
               onCancel={() => setEditingMacros(false)}
@@ -207,11 +238,23 @@ export function FoodSearchModal({
                     <p className="font-semibold text-text-primary">
                       {selectedFood.name}
                     </p>
-                    <p className="text-sm text-text-muted mt-1">
-                      {selectedFood.caloriesPer100g} kcal per 100g · P{" "}
-                      {selectedFood.proteinPer100g}g · C{" "}
-                      {selectedFood.carbsPer100g}g · F {selectedFood.fatPer100g}g
-                    </p>
+                    {/* Scoop foods quote PER SCOOP — the unit people think in;
+                        everything else stays per 100g. */}
+                    {isScoopFood ? (
+                      <p className="text-sm text-text-muted mt-1">
+                        {per(selectedFood.caloriesPer100g, scoopGramsNum)} kcal
+                        per scoop ({scoopGramsNum || "?"}g) · P{" "}
+                        {per(selectedFood.proteinPer100g, scoopGramsNum)}g · C{" "}
+                        {per(selectedFood.carbsPer100g, scoopGramsNum)}g · F{" "}
+                        {per(selectedFood.fatPer100g, scoopGramsNum)}g
+                      </p>
+                    ) : (
+                      <p className="text-sm text-text-muted mt-1">
+                        {selectedFood.caloriesPer100g} kcal per 100g · P{" "}
+                        {selectedFood.proteinPer100g}g · C{" "}
+                        {selectedFood.carbsPer100g}g · F {selectedFood.fatPer100g}g
+                      </p>
+                    )}
                   </div>
                   {selectedFood.isCustom && (
                     <span className="shrink-0 text-[10px] uppercase tracking-wider bg-primary/20 text-primary px-2 py-0.5 rounded">
@@ -221,7 +264,8 @@ export function FoodSearchModal({
                 </div>
 
                 {/* The escape hatch from generic data — prominent, because for
-                    protein powder the generic average is wrong for most people. */}
+                    protein powder the generic average (concentrate vs isolate
+                    moves protein ~75g→90g) is wrong for most people. */}
                 <button
                   type="button"
                   onClick={() => setEditingMacros(true)}
@@ -229,35 +273,103 @@ export function FoodSearchModal({
                 >
                   {selectedFood.isCustom
                     ? "Edit these macros"
+                    : isScoopFood
+                    ? "Concentrate, isolate, or another brand? Enter your macros →"
                     : "Not your brand? Save your own macros →"}
                 </button>
               </div>
 
-              <div>
-                <label
-                  htmlFor="fs-qty"
-                  className="block text-sm text-text-secondary mb-1"
-                >
-                  Quantity (grams)
-                </label>
-                <input
-                  id="fs-qty"
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  step="any"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  className="w-full p-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary focus:outline-none"
-                />
-                <p className="text-xs text-text-muted mt-1">
-                  Default serving: {selectedFood.defaultGrams}g (
-                  {selectedFood.defaultUnit})
-                </p>
-              </div>
+              {isScoopFood ? (
+                /* ── Scoop entry: scoops × grams-per-scoop ── */
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label
+                        htmlFor="fs-scoops"
+                        className="block text-sm text-text-secondary mb-1"
+                      >
+                        Scoops
+                      </label>
+                      <input
+                        id="fs-scoops"
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="any"
+                        value={scoops}
+                        onChange={(e) => setScoops(e.target.value)}
+                        className="w-full p-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="fs-scoop-g"
+                        className="block text-sm text-text-secondary mb-1"
+                      >
+                        Grams per scoop
+                      </label>
+                      <input
+                        id="fs-scoop-g"
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="any"
+                        value={scoopGrams}
+                        onChange={(e) => setScoopGrams(e.target.value)}
+                        className="w-full p-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  {/* One-tap common scoop sizes — the value is on the tub. */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-text-muted">Scoop size:</span>
+                    {[25, 30, 35, 40].map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => setScoopGrams(String(g))}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                          scoopGramsNum === g
+                            ? "bg-primary text-white border-primary"
+                            : "bg-surface border-border text-text-secondary hover:border-primary"
+                        }`}
+                      >
+                        {g}g
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-text-muted">
+                    Check your tub — a scoop is usually 25–40g. Logs{" "}
+                    {quantityNum > 0 ? Math.round(quantityNum) : "—"}g total.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label
+                    htmlFor="fs-qty"
+                    className="block text-sm text-text-secondary mb-1"
+                  >
+                    Quantity (grams)
+                  </label>
+                  <input
+                    id="fs-qty"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="any"
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    className="w-full p-3 bg-surface border border-border rounded-xl text-text-primary focus:border-primary focus:outline-none"
+                  />
+                  <p className="text-xs text-text-muted mt-1">
+                    Default serving: {selectedFood.defaultGrams}g (
+                    {selectedFood.defaultUnit})
+                  </p>
+                </div>
+              )}
 
-              {/* Restaurant toggle — meaningless for a tub of powder */}
-              {!selectedFood.isCustom && (
+              {/* Restaurant toggle — meaningless for a scoop of powder */}
+              {!selectedFood.isCustom && !isScoopFood && (
                 <label className="flex items-center gap-3 p-3 bg-surface rounded-xl border border-border cursor-pointer">
                   <input
                     type="checkbox"
@@ -302,45 +414,49 @@ export function FoodSearchModal({
                 </p>
               )}
 
-              {searchResults?.map((food) => (
-                <button
-                  key={`${food.isCustom ? "custom" : "db"}-${food.id}`}
-                  type="button"
-                  onClick={() => {
-                    setSelectedFood(food);
-                    setQuantity(food.defaultGrams.toString());
-                    setLogError(null);
-                  }}
-                  className="w-full p-3 rounded-xl text-left hover:bg-surface-hover transition-colors"
-                >
-                  <div className="flex justify-between items-start">
-                    <div className="min-w-0">
-                      <p className="font-medium text-text-primary flex items-center gap-2">
-                        <span className="truncate">{food.name}</span>
-                        {food.isCustom && (
-                          <span className="shrink-0 text-[9px] uppercase tracking-wider bg-primary/20 text-primary px-1.5 py-0.5 rounded">
-                            Yours
-                          </span>
+              {searchResults?.map((food) => {
+                // Scoop foods are previewed per scoop in the list too, so the
+                // number matches what actually gets logged.
+                const scoop = food.defaultUnit === "scoop";
+                const g = scoop ? food.defaultGrams : 100;
+                return (
+                  <button
+                    key={`${food.isCustom ? "custom" : "db"}-${food.id}`}
+                    type="button"
+                    onClick={() => selectFood(food)}
+                    className="w-full p-3 rounded-xl text-left hover:bg-surface-hover transition-colors"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="min-w-0">
+                        <p className="font-medium text-text-primary flex items-center gap-2">
+                          <span className="truncate">{food.name}</span>
+                          {food.isCustom && (
+                            <span className="shrink-0 text-[9px] uppercase tracking-wider bg-primary/20 text-primary px-1.5 py-0.5 rounded">
+                              Yours
+                            </span>
+                          )}
+                        </p>
+                        {food.nameHindi && (
+                          <p className="text-xs text-text-muted">{food.nameHindi}</p>
                         )}
-                      </p>
-                      {food.nameHindi && (
-                        <p className="text-xs text-text-muted">{food.nameHindi}</p>
-                      )}
+                      </div>
+                      <div className="text-right flex-shrink-0 ml-3">
+                        <p className="text-sm font-bold text-text-primary">
+                          {per(food.caloriesPer100g, g)} kcal
+                        </p>
+                        <p className="text-[10px] text-text-muted">
+                          {scoop ? `per scoop (${g}g)` : "per 100g"}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right flex-shrink-0 ml-3">
-                      <p className="text-sm font-bold text-text-primary">
-                        {food.caloriesPer100g} kcal
-                      </p>
-                      <p className="text-[10px] text-text-muted">per 100g</p>
+                    <div className="flex gap-3 mt-1 text-[10px] text-text-muted">
+                      <span>P: {per(food.proteinPer100g, g)}g</span>
+                      <span>C: {per(food.carbsPer100g, g)}g</span>
+                      <span>F: {per(food.fatPer100g, g)}g</span>
                     </div>
-                  </div>
-                  <div className="flex gap-3 mt-1 text-[10px] text-text-muted">
-                    <span>P: {food.proteinPer100g}g</span>
-                    <span>C: {food.carbsPer100g}g</span>
-                    <span>F: {food.fatPer100g}g</span>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
 
               {/* ── Not in the table? Let the AI price it. ── */}
               {showEmptyState && (
