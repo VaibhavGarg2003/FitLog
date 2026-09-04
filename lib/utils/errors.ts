@@ -8,15 +8,21 @@
  * the boundary; everything else becomes a generic message + a correlation
  * ID, with the real error captured in Sentry.
  *
- * THE TAXONOMY (deliberately capped at four classes — doc 08 B4's
- * "no 20 error classes" rule; extend only when proven insufficient):
+ * THE TAXONOMY (deliberately capped — doc 08 B4's "no 20 error classes"
+ * rule; extend only when proven insufficient). Originally four classes;
+ * ServiceUnavailableError is a justified fifth for account-deletion
+ * provisioning failures (missing env, missing function/schema, missing
+ * EXECUTE privilege). Those are operational "not wired up yet" states,
+ * not bugs in the request, and must surface as 503 rather than a generic
+ * 500 so the client can hide/disable the control instead of looking broken.
  *
- *   UserFacingError  — base: message is safe to show (500 by default)
- *   ValidationError  — bad input that survived schema checks (400)
- *   NotFoundError    — missing/unowned resource (404; also the IDOR
- *                      answer: "not found", never "forbidden", so we
- *                      don't reveal that the resource exists)
- *   UpstreamError    — a dependency (LLM, Redis) failed (502)
+ *   UserFacingError         — base: message is safe to show (500 by default)
+ *   ValidationError         — bad input that survived schema checks (400)
+ *   NotFoundError           — missing/unowned resource (404; also the IDOR
+ *                             answer: "not found", never "forbidden", so we
+ *                             don't reveal that the resource exists)
+ *   UpstreamError           — a dependency (LLM, Redis) failed (502)
+ *   ServiceUnavailableError — feature not provisioned / ops gap (503)
  *
  * USAGE in every route's catch block:
  *   } catch (error) {
@@ -58,6 +64,16 @@ export class UpstreamError extends UserFacingError {
   constructor(message: string) {
     super(message);
     this.name = "UpstreamError";
+  }
+}
+
+export class ServiceUnavailableError extends UserFacingError {
+  readonly httpStatus = 503;
+  constructor(
+    message = "This action is temporarily unavailable. Please try again later."
+  ) {
+    super(message);
+    this.name = "ServiceUnavailableError";
   }
 }
 

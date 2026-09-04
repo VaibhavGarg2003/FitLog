@@ -67,6 +67,7 @@ export function useLogSet(date: string) {
       reps?: number;
       rpe?: number;
       isWarmup?: boolean;
+      clientRequestId: string;
     }) => {
       const { sessionId, ...setData } = data;
       const res = await fetch(`/api/workout/${sessionId}/sets`, {
@@ -151,5 +152,31 @@ export function useFinishSession(date: string) {
       // "Recent Workouts" card immediately — invalidate its cache too.
       queryClient.invalidateQueries({ queryKey: ["progress"] });
     },
+  });
+}
+
+/**
+ * Discard an active workout (soft-cancel on the server).
+ *
+ * Previously "Discard workout" only cleared local React state, so the row
+ * stayed IN_PROGRESS forever and reappeared as an unfinished session. This
+ * makes the discard real.
+ */
+export function useCancelSession(date: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { sessionId: string }) => {
+      const res = await fetch(`/api/workout/${data.sessionId}/cancel`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Failed to discard workout");
+      return res.json();
+    },
+    // onSettled, not onSuccess: if the discard FAILED the session is still
+    // IN_PROGRESS, and refetching is what makes the UI tell the truth — the
+    // workout reappears as unfinished instead of silently looking discarded.
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] }),
   });
 }

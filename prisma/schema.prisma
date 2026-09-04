@@ -177,6 +177,18 @@ model WorkoutSession {
   // Without an index, PostgreSQL scans EVERY row to find matches.
   // With an index, it jumps directly to matching rows. Much faster.
 
+  @@index([userId, status, updatedAt])
+  // The reaper's candidate query is exactly this shape:
+  //   user_id = $1 AND status = 'IN_PROGRESS' AND updated_at < $2
+  // and it runs synchronously on every "Start workout" (see reapStaleSessions).
+  //
+  // Sessions that hold sets are deliberately kept IN_PROGRESS forever, so that
+  // candidate set GROWS with a user's history of unfinished workouts. Without
+  // this index the reaper falls back to (user_id, date) or a scan and filters
+  // in memory, making start-workout latency track that history. With it,
+  // Postgres seeks straight to the stale rows; the NOT EXISTS anti-join is
+  // then one probe each against exercise_sets(session_id), which is indexed.
+
   @@map("workout_sessions")
 }
 
@@ -197,13 +209,26 @@ model ExerciseSet {
   // isPR — flagged by the PR detector in waitUntil() background processing.
   // The UI shows a trophy icon 🏆 next to PR sets.
 
+  // Client-generated UUID for idempotent set logging. Nullable so existing rows
+  // and clients that omit it are unaffected. Postgres multi-NULL unique
+  // semantics mean many rows may share (session_id, NULL) without colliding.
+  clientRequestId String? @map("client_request_id")
+
   createdAt   DateTime @default(now()) @map("created_at")
 
   // ── Relations ──
   session     WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   exercise    Exercise       @relation(fields: [exerciseId], references: [id])
 
+  // Prevents duplicate set numbers for the same exercise in a session (the
+  // double-tap / flaky-WiFi failure mode). Server derives setNumber as max+1.
+  @@unique([sessionId, exerciseId, setNumber])
+  // Idempotent replay: same clientRequestId on the same session returns the
+  // existing row instead of inserting a second set.
+  @@unique([sessionId, clientRequestId])
   @@index([sessionId])
+  // Covering index for the exercise_id FK (cascade / join lookups).
+  @@index([exerciseId])
   @@map("exercise_sets")
 }
 
@@ -266,6 +291,9 @@ model MealFood {
   mealEntry   MealEntry @relation(fields: [mealEntryId], references: [id], onDelete: Cascade)
   food        Food?     @relation(fields: [foodId], references: [id])
 
+  // Covering indexes for FKs: meal_entry cascade deletes and food ON DELETE SET NULL.
+  @@index([mealEntryId])
+  @@index([foodId])
   @@map("meal_foods")
 }
 
@@ -331,6 +359,10 @@ model Goal {
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   checkpoints   GoalCheckpoint[]
 
+  // Covering index for the user_id FK (cascade deletes from users).
+  // One-ACTIVE-per-user is enforced by a partial unique index in SQL
+  // (goals_one_active_per_user) — Prisma cannot express partial indexes.
+  @@index([userId])
   @@map("goals")
 }
 
@@ -491,6 +523,8 @@ model WorkoutTemplate {
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Covering index for the user_id FK (cascade deletes from users).
+  @@index([userId])
   @@map("workout_templates")
 }
 

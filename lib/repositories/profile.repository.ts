@@ -15,8 +15,10 @@
  * only this file changes. The service layer stays identical.
  */
 
+import { Prisma } from "@prisma/client";
+import type { FitnessGoal } from "@prisma/client";
 import { prisma } from "@/lib/supabase/prisma";
-import type { Prisma, FitnessGoal } from "@prisma/client";
+import { ValidationError } from "@/lib/utils/errors";
 
 /**
  * Create a User + Profile in a single database transaction.
@@ -92,22 +94,37 @@ export async function createUserWithProfile(
 
     // Create the active goal. Keep the "one ACTIVE goal per user" invariant by
     // retiring any prior ACTIVE goal first (matters only on re-onboarding).
+    // The partial unique index goals_one_active_per_user is the real enforcer
+    // under concurrent onboarding; map P2002 to a deliberate conflict rather
+    // than an unhandled 500.
     if (extras?.goal) {
       await tx.goal.updateMany({
         where: { userId: userData.id, status: "ACTIVE" },
         data: { status: "ABANDONED" },
       });
-      await tx.goal.create({
-        data: {
-          userId: userData.id,
-          type: extras.goal.type,
-          startValue: extras.goal.startValue,
-          targetValue: extras.goal.targetValue,
-          startDate: extras.goal.startDate,
-          targetDate: extras.goal.targetDate,
-          status: "ACTIVE",
-        },
-      });
+      try {
+        await tx.goal.create({
+          data: {
+            userId: userData.id,
+            type: extras.goal.type,
+            startValue: extras.goal.startValue,
+            targetValue: extras.goal.targetValue,
+            startDate: extras.goal.startDate,
+            targetDate: extras.goal.targetDate,
+            status: "ACTIVE",
+          },
+        });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          throw new ValidationError(
+            "An active goal already exists for this account. Please retry."
+          );
+        }
+        throw error;
+      }
     }
 
     return { user, profile };

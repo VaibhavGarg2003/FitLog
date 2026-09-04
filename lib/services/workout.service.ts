@@ -26,18 +26,31 @@ import {
 import {
   createSession,
   getSessionsByDate,
-  findSessionForUser,
   addSet,
   updateSetForUser,
   deleteSetForUser,
-  completeSession,
+  finishActiveSessionForUser,
+  cancelActiveSessionForUser,
   getWorkoutBurnByDate,
   deleteSession,
+  reapStaleSessions,
 } from "@/lib/repositories/workout.repository";
-import { NotFoundError, ValidationError } from "@/lib/utils/errors";
+import { NotFoundError } from "@/lib/utils/errors";
+
+/**
+ * Default stale-session timeout. No product owner has approved a value; 24h
+ * is chosen so there is no legitimate 24-hour gap in activity inside a live
+ * workout. One line to change. Intentionally different from the migration
+ * backfill threshold (7 days) — see F1 migration comments.
+ */
+export const STALE_SESSION_TIMEOUT_HOURS = 24;
 
 /**
  * Start a new workout session.
+ *
+ * Reaps this user's stale IN_PROGRESS sessions first. Cleanup is best-effort:
+ * a reaper failure is logged and the session is still created — cleanup must
+ * never fail the user's primary action.
  */
 export async function startSession(
   userId: string,
@@ -47,16 +60,23 @@ export async function startSession(
     splitType?: "PPL" | "UPPER_LOWER" | "BRO" | "FULL_BODY" | "CUSTOM";
   }
 ) {
+  try {
+    await reapStaleSessions(userId, STALE_SESSION_TIMEOUT_HOURS);
+  } catch (err) {
+    console.warn(
+      "[startSession] reapStaleSessions failed; creating session anyway:",
+      err
+    );
+  }
   return createSession(userId, data);
 }
 
 /**
  * Add a set to an active session.
  *
- * SECURITY: verifies the session belongs to `userId` before writing.
- * Without this check, any logged-in user could add sets to another
- * user's session just by knowing its id (IDOR). Throws "Not found"
- * (not "Forbidden") so we never reveal that the session exists.
+ * Ownership + IN_PROGRESS status are enforced inside addSet via
+ * lockActiveSessionForUser (single locked check). setNumber from the client
+ * is advisory — the server derives max+1 under the lock.
  */
 export async function logSet(
   sessionId: string,
@@ -68,21 +88,21 @@ export async function logSet(
     reps?: number;
     rpe?: number;
     isWarmup?: boolean;
+    clientRequestId?: string;
   }
 ) {
-  const session = await findSessionForUser(sessionId, userId);
-  if (!session) throw new NotFoundError("Session not found");
-  if (session.status !== "IN_PROGRESS") {
-    throw new ValidationError("Cannot add sets to a completed session");
-  }
-  return addSet(sessionId, data);
+  // setNumber is accepted for deploy skew (old clients still send it) but
+  // ignored for the write — server derives the authoritative value.
+  const { setNumber: _advisorySetNumber, ...setData } = data;
+  void _advisorySetNumber;
+  return addSet(sessionId, userId, setData);
 }
 
 /**
  * Edit one logged set (weight/reps/rpe/warmup) in an ACTIVE session.
- * Ownership + in-progress status are enforced in a single owner-scoped
- * query (see updateSetForUser) — zero rows updated means "not yours,
- * doesn't exist, or already completed", all answered as Not found.
+ * Ownership + in-progress status are enforced in a single locked transaction
+ * (see updateSetForUser) — zero rows updated means "not yours, doesn't exist,
+ * or already completed", all answered as Not found.
  */
 export async function editSet(
   sessionId: string,
@@ -114,7 +134,9 @@ export async function removeSet(
 }
 
 /**
- * Finish a workout session — calculates total calorie burn.
+ * Finish a workout session — calculates total calorie burn under the session
+ * lock so a concurrent set log cannot change which exercises contribute or
+ * land a set into a session being completed.
  *
  * Uses the engine to estimate calories burned across all sets:
  * - Strength exercises → calculateStrengthBurn() from strength.ts
@@ -132,65 +154,60 @@ export async function finishSession(
     notes?: string;
   }
 ) {
-  // Get this session (owner-scoped) to calculate burn.
-  // SECURITY + BUG FIX: previously this looked up sessions by the SERVER's
-  // current UTC date and searched for a matching id. That (a) let the date
-  // mismatch hide a user's own session near midnight, and (b) relied on the
-  // date filter for ownership. Fetching directly by (id + userId) fixes both:
-  // it's a real ownership check and it doesn't care what day it is.
-  const session = await findSessionForUser(sessionId, userId);
+  const session = await finishActiveSessionForUser(
+    sessionId,
+    userId,
+    (sets) => {
+      let totalBurnLow = 0;
+      let totalBurnHigh = 0;
+
+      const hasCardio = sets.some((s) => s.exercise.category === "CARDIO");
+      const hasStrength = sets.some((s) => s.exercise.category !== "CARDIO");
+
+      if (hasStrength) {
+        // Use the simple estimator (duration + RPE based, since we don't
+        // know exact sets-per-exercise in this simplified flow)
+        const strengthDuration = hasCardio
+          ? data.durationMin * 0.7
+          : data.durationMin;
+        const strengthResult = calculateStrengthBurnSimple(
+          strengthDuration, // durationMin (positional arg 1)
+          data.userWeightKg, // weightKg (positional arg 2)
+          data.rpe ?? 7 // rpe (positional arg 3)
+        );
+        totalBurnLow += strengthResult.low;
+        totalBurnHigh += strengthResult.high;
+      }
+
+      if (hasCardio) {
+        // Find first cardio exercise to get MET value
+        const cardioSet = sets.find((s) => s.exercise.category === "CARDIO");
+        if (cardioSet) {
+          const cardioDuration = hasStrength
+            ? data.durationMin * 0.3
+            : data.durationMin;
+          const cardioResult = calculateCardioBurn(
+            cardioSet.exercise.metValue, // metValue (positional arg 1)
+            data.userWeightKg, // weightKg (positional arg 2)
+            cardioDuration // durationMin (positional arg 3)
+          );
+          totalBurnLow += cardioResult.low;
+          totalBurnHigh += cardioResult.high;
+        }
+      }
+
+      return {
+        durationMin: data.durationMin,
+        rpe: data.rpe,
+        caloriesBurnedLow: Math.round(totalBurnLow),
+        caloriesBurnedHigh: Math.round(totalBurnHigh),
+        notes: data.notes,
+      };
+    }
+  );
 
   if (!session) throw new NotFoundError("Session not found");
-
-  let totalBurnLow = 0;
-  let totalBurnHigh = 0;
-
-  // Count cardio vs strength exercises
-  const hasCardio = session.exerciseSets.some(
-    (s) => s.exercise.category === "CARDIO"
-  );
-  const hasStrength = session.exerciseSets.some(
-    (s) => s.exercise.category !== "CARDIO"
-  );
-
-  if (hasStrength) {
-    // Use the simple estimator (duration + RPE based, since we don't
-    // know exact sets-per-exercise in this simplified flow)
-    const strengthDuration = hasCardio ? data.durationMin * 0.7 : data.durationMin;
-    const strengthResult = calculateStrengthBurnSimple(
-      strengthDuration,       // durationMin (positional arg 1)
-      data.userWeightKg,      // weightKg (positional arg 2)
-      data.rpe ?? 7           // rpe (positional arg 3)
-    );
-    totalBurnLow += strengthResult.low;
-    totalBurnHigh += strengthResult.high;
-  }
-
-  if (hasCardio) {
-    // Find first cardio exercise to get MET value
-    const cardioSet = session.exerciseSets.find(
-      (s) => s.exercise.category === "CARDIO"
-    );
-    if (cardioSet) {
-      const cardioDuration = hasStrength ? data.durationMin * 0.3 : data.durationMin;
-      const cardioResult = calculateCardioBurn(
-        cardioSet.exercise.metValue,  // metValue (positional arg 1)
-        data.userWeightKg,            // weightKg (positional arg 2)
-        cardioDuration                // durationMin (positional arg 3)
-      );
-      totalBurnLow += cardioResult.low;
-      totalBurnHigh += cardioResult.high;
-    }
-  }
-
-  // Complete the session with calorie burn range
-  return completeSession(sessionId, {
-    durationMin: data.durationMin,
-    rpe: data.rpe,
-    caloriesBurnedLow: Math.round(totalBurnLow),
-    caloriesBurnedHigh: Math.round(totalBurnHigh),
-    notes: data.notes,
-  });
+  return session;
 }
 
 /**
@@ -212,4 +229,21 @@ export async function getWorkoutSummary(userId: string, date: string) {
  */
 export async function removeSession(sessionId: string, userId: string) {
   return deleteSession(sessionId, userId);
+}
+
+/**
+ * Discard an active workout the user explicitly chose to throw away.
+ *
+ * Soft-cancels (status = CANCELLED) rather than deleting: the logged sets stay
+ * in the database so a mis-tap is recoverable, while getSessionsByDate hides
+ * CANCELLED so it leaves the UI as the user expects.
+ *
+ * Without this the "Discard workout" button only cleared local React state —
+ * the row stayed IN_PROGRESS forever, which is one of the ways sessions got
+ * stuck in the first place.
+ */
+export async function discardSession(sessionId: string, userId: string) {
+  const cancelled = await cancelActiveSessionForUser(sessionId, userId);
+  if (!cancelled) throw new NotFoundError("Session not found");
+  return { cancelled: true };
 }
