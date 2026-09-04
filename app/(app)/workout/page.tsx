@@ -30,6 +30,7 @@ import {
   useLogSet,
   useFinishSession,
   useCancelSession,
+  useUnfinishedSessions,
 } from "@/lib/hooks/use-workout";
 import {
   useStartFromTemplate,
@@ -51,12 +52,14 @@ import { localDateStr } from "@/lib/utils/local-date";
 
 export default function WorkoutPage() {
   const selectedDate = useUIStore((s) => s.selectedDate);
+  const setSelectedDate = useUIStore((s) => s.setSelectedDate);
   const { data: sessions, isLoading } = useWorkoutsForDate(selectedDate);
   const startSession = useStartSession(selectedDate);
   const startFromTemplate = useStartFromTemplate(selectedDate);
   const logSet = useLogSet(selectedDate);
   const finishSession = useFinishSession(selectedDate);
   const cancelSession = useCancelSession(selectedDate);
+  const { data: unfinished } = useUnfinishedSessions();
 
   const [showBrowser, setShowBrowser] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -173,6 +176,13 @@ export default function WorkoutPage() {
       return;
     }
     setFinishError(null);
+    // MUST clear the open exercise. The left column renders
+    //   activeExercise ? <SetLogger> : showFinish ? <finish form> : ...
+    // so activeExercise wins, while the right column hides the Finish button
+    // once showFinish is true. Tapping Finish mid-exercise therefore made the
+    // button vanish with the finish form never appearing — a dead end with no
+    // way to complete the workout.
+    setActiveExercise(null);
     setShowFinish(true);
   }
 
@@ -420,32 +430,35 @@ export default function WorkoutPage() {
   // used only to word the resume prompt for a past day vs the current one.
   const todayStr = localDateStr();
 
-  // ── Unfinished sessions on this date ──────────────────────────────
-  // Sessions that hold real sets but were never finished. Previously invisible:
-  // the list below renders COMPLETED only, so a workout you walked away from —
-  // or one you lost by refreshing the page, since activeSessionId is React
-  // state — showed as "No sessions logged for this day yet".
+  // ── Unfinished workouts, across ALL dates ─────────────────────────
+  // NOT scoped to the selected date. The date strip only reaches back 7 days
+  // (date-strip.tsx), so a session older than that cannot be navigated to —
+  // and that is exactly the person the reaper preserves sessions for. Showing
+  // these only on their own date hid the feature from the users who need it.
   //
-  // Empty ones are deliberately excluded: nothing was logged, so there is
-  // nothing to resume, and the reaper deletes them as litter.
+  // Empty sessions are excluded: nothing logged, nothing to resume.
   const unfinishedSessions = (
-    (sessions ?? []) as Array<{
+    (unfinished ?? []) as Array<{
       id: string;
-      status: string;
+      date: string;
       exerciseSets: Array<{ id: string; exercise: { id: string; name: string } }>;
     }>
-  ).filter(
-    (s) =>
-      s.status === "IN_PROGRESS" &&
-      s.exerciseSets.length > 0 &&
-      // The one being logged right now is already driving the active UI.
-      !(s.id === activeSessionId && onSessionDate)
-  );
+  ).filter((s) => !(s.id === activeSessionId && onSessionDate));
 
-  /** Re-adopt an unfinished session so the normal logging/finish flow runs. */
+  /**
+   * Re-adopt an unfinished session so the normal logging/finish flow runs.
+   *
+   * The session's own date must become the selected date: activeSessionData is
+   * looked up in THIS date's sessions, so resuming a 21 July workout while
+   * viewing today would find no sets and render an empty session.
+   */
   function handleResumeSession(sessionId: string) {
+    const target = unfinishedSessions.find((s) => s.id === sessionId);
+    const targetDate = target ? target.date.slice(0, 10) : selectedDate;
+
+    setSelectedDate(targetDate);
     setActiveSessionId(sessionId);
-    setActiveSessionDate(selectedDate);
+    setActiveSessionDate(targetDate);
     setWorkoutCompleted(null);
     setActiveExercise(null);
     setShowFinish(false);
@@ -459,13 +472,14 @@ export default function WorkoutPage() {
     unfinishedSessions.length > 0 ? (
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
-          Unfinished
+          Unfinished workouts
         </h2>
         {unfinishedSessions.map((session) => (
           <UnfinishedSessionCard
             key={session.id}
             session={session}
-            isPast={selectedDate < todayStr}
+            sessionDate={session.date.slice(0, 10)}
+            isPast={session.date.slice(0, 10) < todayStr}
             onResume={handleResumeSession}
           />
         ))}

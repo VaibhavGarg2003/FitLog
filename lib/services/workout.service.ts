@@ -34,6 +34,7 @@ import {
   getWorkoutBurnByDate,
   deleteSession,
   reapStaleSessions,
+  getUnfinishedSessionsForUser,
 } from "@/lib/repositories/workout.repository";
 import { NotFoundError } from "@/lib/utils/errors";
 
@@ -246,4 +247,12 @@ export async function discardSession(sessionId: string, userId: string) {
   const cancelled = await cancelActiveSessionForUser(sessionId, userId);
   if (!cancelled) throw new NotFoundError("Session not found");
   return { cancelled: true };
+}
+
+/**
+ * Unfinished workouts (any date) so they can be resumed or closed out.
+ * Not date-scoped on purpose — see getUnfinishedSessionsForUser.
+ */
+export async function getUnfinishedWorkouts(userId: string) {
+  return getUnfinishedSessionsForUser(userId);
 }

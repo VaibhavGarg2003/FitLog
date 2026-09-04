@@ -51,6 +51,9 @@ export function useStartSession(date: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
+      // A session changing state can add or remove it from the cross-date
+      // unfinished list, which is not keyed by date.
+      queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] });
     },
   });
 }
@@ -79,7 +82,11 @@ export function useLogSet(date: string) {
       return res.json();
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] }),
+      queryClient.invalidateQueries({
+        queryKey: ["workout", "sessions", date],
+      }).then(() =>
+        queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] })
+      ),
   });
 }
 
@@ -105,7 +112,11 @@ export function useUpdateSet(date: string) {
       return res.json();
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] }),
+      queryClient.invalidateQueries({
+        queryKey: ["workout", "sessions", date],
+      }).then(() =>
+        queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] })
+      ),
   });
 }
 
@@ -123,7 +134,11 @@ export function useDeleteSet(date: string) {
       return res.json();
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] }),
+      queryClient.invalidateQueries({
+        queryKey: ["workout", "sessions", date],
+      }).then(() =>
+        queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] })
+      ),
   });
 }
 
@@ -148,6 +163,9 @@ export function useFinishSession(date: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
+      // A session changing state can add or remove it from the cross-date
+      // unfinished list, which is not keyed by date.
+      queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] });
       // A newly COMPLETED session must appear in the Progress page's
       // "Recent Workouts" card immediately — invalidate its cache too.
       queryClient.invalidateQueries({ queryKey: ["progress"] });
@@ -177,6 +195,28 @@ export function useCancelSession(date: string) {
     // IN_PROGRESS, and refetching is what makes the UI tell the truth — the
     // workout reappears as unfinished instead of silently looking discarded.
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] }),
+      queryClient.invalidateQueries({
+        queryKey: ["workout", "sessions", date],
+      }).then(() =>
+        queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] })
+      ),
+  });
+}
+
+/**
+ * Unfinished workouts across ALL dates (not just the selected one).
+ *
+ * The date strip only reaches back 7 days, so anything older is otherwise
+ * unreachable — which is exactly the session the reaper preserves. Invalidated
+ * by the same key as the per-date query wherever a session changes state.
+ */
+export function useUnfinishedSessions() {
+  return useQuery({
+    queryKey: ["workout", "unfinished"],
+    queryFn: async () => {
+      const res = await fetch("/api/workout/unfinished");
+      if (!res.ok) throw new Error("Failed to load unfinished workouts");
+      return res.json();
+    },
   });
 }

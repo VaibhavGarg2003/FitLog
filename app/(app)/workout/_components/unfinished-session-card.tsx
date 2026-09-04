@@ -37,17 +37,29 @@ interface UnfinishedSessionCardProps {
       exercise: { id: string; name: string };
     }>;
   };
-  /** True when this session belongs to a date before the one being viewed. */
+  /** The session's own date, "YYYY-MM-DD". Shown because this list spans
+   *  all dates — the date strip only reaches back 7 days. */
+  sessionDate: string;
+  /** True when the session is from a day before today. */
   isPast: boolean;
   onResume: (sessionId: string) => void;
 }
 
 export function UnfinishedSessionCard({
   session,
+  sessionDate,
   isPast,
   onResume,
 }: UnfinishedSessionCardProps) {
   const setCount = session.exerciseSets.length;
+
+  // "21 Jul 2026" — parsed as local, not UTC, so the label cannot slip a day.
+  const [y, m, d] = sessionDate.split("-").map(Number);
+  const label = new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 
   // Distinct exercise names, in the order they were first logged.
   const exerciseNames: string[] = [];
@@ -65,6 +77,9 @@ export function UnfinishedSessionCard({
             <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">
               Unfinished
             </span>
+            <span className="text-xs font-medium text-text-secondary">
+              {label}
+            </span>
             <span className="text-xs text-text-muted">
               {setCount} set{setCount !== 1 ? "s" : ""}
             </span>
@@ -77,8 +92,8 @@ export function UnfinishedSessionCard({
 
       <p className="text-xs text-text-muted">
         {isPast
-          ? "This workout was never finished. Resume it to add sets or close it out — nothing was lost."
-          : "Picked up where you left off. Resume to keep logging or finish this workout."}
+          ? "Never finished. Resume to add sets or close it out — nothing was lost."
+          : "Still open. Resume to keep logging or finish this workout."}
       </p>
 
       <button

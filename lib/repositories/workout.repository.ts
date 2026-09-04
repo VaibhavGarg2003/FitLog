@@ -659,3 +659,39 @@ export async function deleteSession(sessionId: string, userId: string) {
     });
   });
 }
+
+/**
+ * Every unfinished workout that still holds sets, across ALL dates.
+ *
+ * WHY THIS IS NOT DATE-SCOPED:
+ * ────────────────────────────
+ * The workout page's date strip only offers the last 7 days, so a session
+ * older than that is unreachable by navigation — which is precisely the
+ * forgetful user the reaper now preserves sessions for. Surfacing them only
+ * on their own date meant the person who most needed the feature could never
+ * see it.
+ *
+ * Empty sessions are excluded: nothing was logged, so there is nothing to
+ * resume, and the reaper deletes them as litter.
+ */
+export async function getUnfinishedSessionsForUser(userId: string) {
+  return prisma.workoutSession.findMany({
+    where: {
+      userId,
+      status: "IN_PROGRESS",
+      exerciseSets: { some: {} },
+    },
+    select: {
+      id: true,
+      date: true,
+      exerciseSets: {
+        select: {
+          id: true,
+          exercise: { select: { id: true, name: true } },
+        },
+      },
+    },
+    orderBy: { date: "desc" },
+    take: 20,
+  });
+}
