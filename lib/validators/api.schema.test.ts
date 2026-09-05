@@ -17,6 +17,7 @@ import {
   logWeightSchema,
   parseMealRequestSchema,
   createShareSchema,
+  deleteAccountSchema,
 } from "@/lib/validators/api.schema";
 
 describe("logCustomFoodSchema", () => {
@@ -140,6 +141,40 @@ describe("logSetSchema", () => {
     expect(logSetSchema.safeParse({ ...valid, setNumber: 1.5 }).success).toBe(
       false
     );
+  });
+
+  it("accepts an optional clientRequestId UUID", () => {
+    const r = logSetSchema.safeParse({
+      ...valid,
+      clientRequestId: "550e8400-e29b-41d4-a716-446655440000",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects a non-UUID clientRequestId", () => {
+    expect(
+      logSetSchema.safeParse({ ...valid, clientRequestId: "not-a-uuid" })
+        .success
+    ).toBe(false);
+  });
+
+  it("accepts a payload with no clientRequestId (optional)", () => {
+    expect(logSetSchema.safeParse(valid).success).toBe(true);
+  });
+});
+
+describe("deleteAccountSchema", () => {
+  it("requires the exact confirm string DELETE", () => {
+    expect(deleteAccountSchema.safeParse({ confirm: "DELETE" }).success).toBe(
+      true
+    );
+    expect(deleteAccountSchema.safeParse({ confirm: "delete" }).success).toBe(
+      false
+    );
+    expect(deleteAccountSchema.safeParse({ confirm: "YES" }).success).toBe(
+      false
+    );
+    expect(deleteAccountSchema.safeParse({}).success).toBe(false);
   });
 });
 

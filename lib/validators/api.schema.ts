@@ -94,6 +94,14 @@ export const startWorkoutSchema = z.object({
 // consume. rpe is the 1-5 "Intensity" scale the UI actually offers — the old
 // 1-10 RPE bound let the inline set editor save a 7 that no picker could
 // produce and no label could describe.
+//
+// setNumber stays accepted and bounded but is now ADVISORY — the server
+// derives max(setNumber)+1 under the session lock. Keeping the field avoids
+// client/server version skew during deploy.
+//
+// clientRequestId: optional UUID generated once per logging attempt on the
+// client; retries reuse it so a request that succeeded server-side but failed
+// client-side is a no-op (idempotent replay via unique (session, client_request_id)).
 export const logSetSchema = z.object({
   exerciseId: z.string().min(1),
   setNumber: z.number().int().min(1).max(100),
@@ -101,6 +109,7 @@ export const logSetSchema = z.object({
   reps: z.number().int().positive().max(200).optional(),
   rpe: z.number().int().min(1).max(5).optional(),
   isWarmup: z.boolean().default(false),
+  clientRequestId: z.string().uuid().optional(),
 });
 
 // ─── PUT /api/workout/[id]/sets — finish a session ───────────
@@ -214,4 +223,12 @@ export const parseMealRequestSchema = z.object({
     .max(1000),
   mealType: mealTypeSchema,
   date: dateStrSchema,
+});
+
+// ─── DELETE /api/account — permanent account deletion ────────
+// Typed confirmation only. The exact string "DELETE" is required so a stray
+// click / autofill cannot wipe an account. Feature is inert until
+// ACCOUNT_DELETION_DATABASE_URL + private.delete_user_account are provisioned.
+export const deleteAccountSchema = z.object({
+  confirm: z.literal("DELETE"),
 });

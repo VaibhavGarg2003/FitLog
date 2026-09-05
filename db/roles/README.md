@@ -109,10 +109,28 @@ SELECT * FROM private.cross_service_fk_drift();
 |---|---|
 | `001_least_privilege_roles.sql` | Creates roles, transfers ownership, sets grants |
 | `001_least_privilege_roles_rollback.sql` | Reverses everything |
+| `002_delete_user_account.sql` | `private.delete_user_account` + `fitlog_deleter` role (account deletion). **Requires 001 first** (schema `private`). |
+| `EXTRACT_rls_auto_enable.md` | Read-only commands to dump the live RLS auto-enable function (gap) |
 
 These are **not** Prisma migrations and must never be moved into
 `prisma/migrations/`. They create roles (a cluster-level operation) and must run as
 `postgres`, whereas Prisma migrations will run as `fitlog_migrate`.
+
+---
+
+## TODO / GAP — `rls_auto_enable` is not version-controlled
+
+`001_least_privilege_roles.sql` and earlier sections of this README treat
+`public.rls_auto_enable()` / the `ensure_rls` event trigger as load-bearing.
+**The repo contains only comments** — no `CREATE FUNCTION`, no
+`CREATE EVENT TRIGGER`. A rebuild from this repo produces a database with no
+auto-RLS, and the live function is documented as swallowing its own errors.
+
+**Do not invent the function body.** Extract it from a live database as
+`postgres` using the commands in `EXTRACT_rls_auto_enable.md`, then commit
+the real definition. Until that lands, this is an explicit, closable gap —
+not an implied, version-controlled guarantee.
+
 
 ---
 

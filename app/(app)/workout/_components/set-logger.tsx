@@ -42,7 +42,7 @@
  * The engine uses it for session intensity calculations.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Copy } from "lucide-react";
 import { SetRow, type LoggedSet } from "./set-row";
 
@@ -65,6 +65,7 @@ interface SetLoggerProps {
     reps: number;
     rpe?: number;
     isWarmup: boolean;
+    clientRequestId: string;
   }) => void | Promise<void>;
   onDone: () => void;
   isPending: boolean;
@@ -86,6 +87,11 @@ export function SetLogger({
   const [showScale, setShowScale] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // One UUID per logging attempt. Held across failures so a request that
+  // succeeded server-side but failed client-side becomes an idempotent
+  // replay (no duplicate set). Cleared only after a successful log.
+  const clientRequestIdRef = useRef<string | null>(null);
+
   // NOTE: switching exercises resets this form via a `key` remount at the call
   // site (workout/page.tsx passes key={activeExercise.id}) — React's
   // sanctioned replacement for a reset-state-on-prop-change effect.
@@ -106,15 +112,27 @@ export function SetLogger({
     }
     setError(null);
 
+    if (!clientRequestIdRef.current) {
+      clientRequestIdRef.current = crypto.randomUUID();
+    }
+
     try {
       await Promise.resolve(
-        onLogSet({ weight: w, reps: r, rpe: intensity ?? undefined, isWarmup })
+        onLogSet({
+          weight: w,
+          reps: r,
+          rpe: intensity ?? undefined,
+          isWarmup,
+          clientRequestId: clientRequestIdRef.current,
+        })
       );
     } catch {
-      // Keep form values so the user can fix and retry.
+      // Keep form values AND the clientRequestId so the user can fix and retry.
       setError("Could not log the set. Try again.");
       return;
     }
+
+    clientRequestIdRef.current = null;
 
     // Clear reps/intensity so the form is ready for a fresh entry or a one-tap
     // "Use previous set" fill. Weight stays as a convenience default.

@@ -29,6 +29,8 @@ import {
   useStartSession,
   useLogSet,
   useFinishSession,
+  useCancelSession,
+  useUnfinishedSessions,
 } from "@/lib/hooks/use-workout";
 import {
   useStartFromTemplate,
@@ -45,14 +47,19 @@ import {
   type ActiveSet,
 } from "./_components/logged-exercises";
 import { SaveTemplateModal } from "./_components/save-template-modal";
+import { UnfinishedSessionCard } from "./_components/unfinished-session-card";
+import { localDateStr } from "@/lib/utils/local-date";
 
 export default function WorkoutPage() {
   const selectedDate = useUIStore((s) => s.selectedDate);
+  const setSelectedDate = useUIStore((s) => s.setSelectedDate);
   const { data: sessions, isLoading } = useWorkoutsForDate(selectedDate);
   const startSession = useStartSession(selectedDate);
   const startFromTemplate = useStartFromTemplate(selectedDate);
   const logSet = useLogSet(selectedDate);
   const finishSession = useFinishSession(selectedDate);
+  const cancelSession = useCancelSession(selectedDate);
+  const { data: unfinished } = useUnfinishedSessions();
 
   const [showBrowser, setShowBrowser] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -137,13 +144,14 @@ export default function WorkoutPage() {
     reps: number;
     rpe?: number;
     isWarmup: boolean;
+    clientRequestId: string;
   }) {
     if (!activeSessionId || !activeExercise) {
       throw new Error("No active session");
     }
     // Next number = one past the highest this exercise already has. The server
-    // keeps numbering contiguous, so this equals "count + 1" — but taking the
-    // max means a stale read can never produce a DUPLICATE set number.
+    // re-derives max+1 under the lock (client value is advisory) — but taking
+    // the max still keeps the UI label honest between refetches.
     const nextSetNumber =
       activeExerciseSets.reduce((max, s) => Math.max(max, s.setNumber), 0) + 1;
 
@@ -156,6 +164,7 @@ export default function WorkoutPage() {
       reps: data.reps,
       rpe: data.rpe,
       isWarmup: data.isWarmup,
+      clientRequestId: data.clientRequestId,
     });
   }
 
@@ -167,6 +176,13 @@ export default function WorkoutPage() {
       return;
     }
     setFinishError(null);
+    // MUST clear the open exercise. The left column renders
+    //   activeExercise ? <SetLogger> : showFinish ? <finish form> : ...
+    // so activeExercise wins, while the right column hides the Finish button
+    // once showFinish is true. Tapping Finish mid-exercise therefore made the
+    // button vanish with the finish form never appearing — a dead end with no
+    // way to complete the workout.
+    setActiveExercise(null);
     setShowFinish(true);
   }
 
@@ -174,7 +190,23 @@ export default function WorkoutPage() {
   // wizard state and returns to the start screen. (The empty in-progress
   // session stays in the DB but is invisible — only COMPLETED sessions are
   // listed. A dedicated cancel/delete endpoint is a possible follow-up.)
-  function handleCancelSession() {
+  /**
+   * Discard the workout — a REAL server-side cancel, not just local state.
+   *
+   * This used to only clear React state, so the session stayed IN_PROGRESS in
+   * the database forever. That was invisible while the page rendered COMPLETED
+   * sessions only; now that unfinished sessions are surfaced, a discarded
+   * workout would immediately reappear offering "Resume". It was also one of
+   * the ways sessions got stuck in the first place.
+   *
+   * Local state is cleared regardless of the request's outcome: the user asked
+   * to leave this workout, and trapping them in it because a network call
+   * failed would be worse. A failed cancel simply leaves the session
+   * unfinished — recoverable, and honest.
+   */
+  async function handleCancelSession() {
+    const sessionId = activeSessionId;
+
     setActiveSessionId(null);
     setActiveSessionDate(null);
     setActiveExercise(null);
@@ -183,6 +215,16 @@ export default function WorkoutPage() {
     setConfirmingCancel(false);
     setPlannedExercises(null);
     setDoneExerciseIds(new Set());
+
+    if (!sessionId) return;
+    try {
+      await cancelSession.mutateAsync({ sessionId });
+    } catch {
+      // Surfaced by the banner below via cancelSession.isError — never
+      // swallowed. The hook invalidates on settled, so a failed discard
+      // refetches and the workout reappears as unfinished: the UI tells the
+      // truth rather than letting the user believe it was thrown away.
+    }
   }
 
   // Cancel from anywhere in the flow. If sets are already logged, ask first;
@@ -384,6 +426,66 @@ export default function WorkoutPage() {
     </div>
   );
 
+  // Local-timezone "today" (never toISOString — see lib/utils/local-date.ts),
+  // used only to word the resume prompt for a past day vs the current one.
+  const todayStr = localDateStr();
+
+  // ── Unfinished workouts, across ALL dates ─────────────────────────
+  // NOT scoped to the selected date. The date strip only reaches back 7 days
+  // (date-strip.tsx), so a session older than that cannot be navigated to —
+  // and that is exactly the person the reaper preserves sessions for. Showing
+  // these only on their own date hid the feature from the users who need it.
+  //
+  // Empty sessions are excluded: nothing logged, nothing to resume.
+  const unfinishedSessions = (
+    (unfinished ?? []) as Array<{
+      id: string;
+      date: string;
+      exerciseSets: Array<{ id: string; exercise: { id: string; name: string } }>;
+    }>
+  ).filter((s) => !(s.id === activeSessionId && onSessionDate));
+
+  /**
+   * Re-adopt an unfinished session so the normal logging/finish flow runs.
+   *
+   * The session's own date must become the selected date: activeSessionData is
+   * looked up in THIS date's sessions, so resuming a 21 July workout while
+   * viewing today would find no sets and render an empty session.
+   */
+  function handleResumeSession(sessionId: string) {
+    const target = unfinishedSessions.find((s) => s.id === sessionId);
+    const targetDate = target ? target.date.slice(0, 10) : selectedDate;
+
+    setSelectedDate(targetDate);
+    setActiveSessionId(sessionId);
+    setActiveSessionDate(targetDate);
+    setWorkoutCompleted(null);
+    setActiveExercise(null);
+    setShowFinish(false);
+    setFinishError(null);
+    setConfirmingCancel(false);
+    setPlannedExercises(null);
+    setDoneExerciseIds(new Set());
+  }
+
+  const unfinishedList =
+    unfinishedSessions.length > 0 ? (
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+          Unfinished workouts
+        </h2>
+        {unfinishedSessions.map((session) => (
+          <UnfinishedSessionCard
+            key={session.id}
+            session={session}
+            sessionDate={session.date.slice(0, 10)}
+            isPast={session.date.slice(0, 10) < todayStr}
+            onResume={handleResumeSession}
+          />
+        ))}
+      </div>
+    ) : null;
+
   const sessionsList =
     completedSessions.length > 0 ? (
       <div className="space-y-3">
@@ -422,6 +524,31 @@ export default function WorkoutPage() {
           Log your gym session
         </p>
       </div>
+
+      {/* A failed discard must never look like a successful one. Local state
+          is cleared immediately (so the user is not trapped in a workout they
+          asked to leave), but if the server call failed the session is still
+          unfinished — say so, and the onSettled refetch brings it back below
+          as an "Unfinished" card. */}
+      {cancelSession.isError && (
+        <div className="flex flex-wrap items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
+          {/* Status-neutral on purpose: a 404 here can mean the request never
+              landed, OR that another tab finished or discarded the session
+              first. Claiming "it's still unfinished" would be a guess, and
+              wrong in the second case. The refetch below shows the truth. */}
+          <span className="text-sm text-text-primary">
+            Couldn&apos;t confirm the discard — the workout list has been
+            refreshed, so check below for its current state.
+          </span>
+          <button
+            type="button"
+            onClick={() => cancelSession.reset()}
+            className="ml-auto text-sm text-text-muted hover:text-text-primary"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <DateStrip />
 
@@ -666,17 +793,22 @@ export default function WorkoutPage() {
             {isLoading && (
               <div className="bg-surface rounded-2xl p-6 border border-border animate-pulse h-32" />
             )}
+            {/* Unfinished first: it is the thing most likely to be acted on,
+                and it used to be invisible entirely. */}
+            {unfinishedList}
             {sessionsList}
-            {!isLoading && completedSessions.length === 0 && (
-              <div className="bg-surface rounded-2xl border border-border p-6 lg:p-8 text-center">
-                <p className="text-sm text-text-muted">
-                  No sessions logged for this day yet.
-                </p>
-                <p className="text-xs text-text-muted mt-1">
-                  Start a workout or pick a template to begin.
-                </p>
-              </div>
-            )}
+            {!isLoading &&
+              completedSessions.length === 0 &&
+              unfinishedSessions.length === 0 && (
+                <div className="bg-surface rounded-2xl border border-border p-6 lg:p-8 text-center">
+                  <p className="text-sm text-text-muted">
+                    No sessions logged for this day yet.
+                  </p>
+                  <p className="text-xs text-text-muted mt-1">
+                    Start a workout or pick a template to begin.
+                  </p>
+                </div>
+              )}
           </div>
         </div>
       )}
