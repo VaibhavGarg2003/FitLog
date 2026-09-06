@@ -38,6 +38,7 @@ describe.skipIf(!TEST_URL)("session activity (integration)", () => {
   let createSession: typeof import("./workout.repository").createSession;
   let cancelActiveSessionForUser: typeof import("./workout.repository").cancelActiveSessionForUser;
   let getSessionsByDate: typeof import("./workout.repository").getSessionsByDate;
+  let deleteSession: typeof import("./workout.repository").deleteSession;
 
   const userId = crypto.randomUUID();
   const exerciseId = crypto.randomUUID();
@@ -66,6 +67,7 @@ describe.skipIf(!TEST_URL)("session activity (integration)", () => {
     createSession = repo.createSession;
     cancelActiveSessionForUser = repo.cancelActiveSessionForUser;
     getSessionsByDate = repo.getSessionsByDate;
+    deleteSession = repo.deleteSession;
 
     await prisma.user.create({
       data: {
@@ -369,6 +371,44 @@ describe.skipIf(!TEST_URL)("session activity (integration)", () => {
       }
     }
   }, 30_000);
+
+  it("deleting an unfinished session removes it and its sets", async () => {
+    const doomed = await createSession(userId, {
+      date: "2026-01-11",
+      mode: "RECALL",
+    });
+    await addSet(doomed.id, userId, {
+      exerciseId,
+      weight: 15,
+      reps: 20,
+      clientRequestId: crypto.randomUUID(),
+    });
+
+    await deleteSession(doomed.id, userId);
+
+    expect(
+      await prisma.workoutSession.findUnique({ where: { id: doomed.id } })
+    ).toBeNull();
+    // ON DELETE CASCADE — the sets go with it. This is the "just get rid of
+    // it" path, unlike cancel, which keeps them.
+    expect(
+      await prisma.exerciseSet.count({ where: { sessionId: doomed.id } })
+    ).toBe(0);
+  });
+
+  it("does not let one user delete another user's session", async () => {
+    const mine = await createSession(userId, {
+      date: "2026-01-12",
+      mode: "RECALL",
+    });
+    const stranger = crypto.randomUUID();
+
+    await expect(deleteSession(mine.id, stranger)).rejects.toThrow();
+
+    expect(
+      await prisma.workoutSession.findUnique({ where: { id: mine.id } })
+    ).not.toBeNull();
+  });
 
   it("does not let one user discard another user's session", async () => {
     const mine = await createSession(userId, {

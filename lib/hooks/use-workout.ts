@@ -220,3 +220,28 @@ export function useUnfinishedSessions() {
     },
   });
 }
+
+/**
+ * Permanently delete a workout session (hard delete, sets cascade).
+ *
+ * Distinct from useCancelSession, which soft-cancels an ACTIVE workout and
+ * keeps its sets. This is for the Unfinished list: an old session the user
+ * will never finish and wants gone. The UI confirms first — there is no undo.
+ */
+export function useDeleteSession(date: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { sessionId: string }) => {
+      const res = await fetch(`/api/workout/${data.sessionId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete workout");
+      return res.json();
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
+      queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] });
+    },
+  });
+}
