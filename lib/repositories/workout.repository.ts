@@ -652,7 +652,11 @@ export async function deleteSession(sessionId: string, userId: string) {
   return prisma.$transaction(async (tx) => {
     const locked = await lockSessionForUser(tx, sessionId, userId);
     if (!locked) {
-      throw new Error("Session not found or not authorized");
+      // NotFoundError, not a bare Error: handleRouteError treats unknown
+      // errors as bugs (500 + Sentry). A missing or someone else's session is
+      // an expected outcome and must answer 404 — same IDOR-safe reply as
+      // every other session mutation, never "forbidden".
+      throw new NotFoundError("Session not found");
     }
     return tx.workoutSession.delete({
       where: { id: sessionId },

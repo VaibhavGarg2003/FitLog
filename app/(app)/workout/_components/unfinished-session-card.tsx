@@ -29,6 +29,8 @@
  * be resumed here.
  */
 
+import { useState } from "react";
+
 interface UnfinishedSessionCardProps {
   session: {
     id: string;
@@ -43,6 +45,9 @@ interface UnfinishedSessionCardProps {
   /** True when the session is from a day before today. */
   isPast: boolean;
   onResume: (sessionId: string) => void;
+  /** Permanently delete this session and its sets. No undo. */
+  onDelete: (sessionId: string) => void;
+  deleting?: boolean;
 }
 
 export function UnfinishedSessionCard({
@@ -50,7 +55,12 @@ export function UnfinishedSessionCard({
   sessionDate,
   isPast,
   onResume,
+  onDelete,
+  deleting = false,
 }: UnfinishedSessionCardProps) {
+  // Two-step confirm: deleting destroys logged sets with no recovery, so a
+  // single mis-tap must not be enough. Same pattern as "Discard workout".
+  const [confirming, setConfirming] = useState(false);
   const setCount = session.exerciseSets.length;
 
   // "21 Jul 2026" — parsed as local, not UTC, so the label cannot slip a day.
@@ -96,13 +106,48 @@ export function UnfinishedSessionCard({
           : "Still open. Resume to keep logging or finish this workout."}
       </p>
 
-      <button
-        type="button"
-        onClick={() => onResume(session.id)}
-        className="w-full py-2.5 bg-primary/10 text-primary font-semibold rounded-xl hover:bg-primary/20 transition-colors text-sm"
-      >
-        Resume workout
-      </button>
+      {confirming ? (
+        <div className="space-y-2">
+          <p className="text-xs text-red-400">
+            Delete this workout and its {setCount} logged set
+            {setCount !== 1 ? "s" : ""}? This cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={() => onDelete(session.id)}
+              className="flex-1 py-2.5 bg-red-500/15 text-red-400 font-semibold rounded-xl hover:bg-red-500/25 disabled:opacity-50 transition-colors text-sm"
+            >
+              {deleting ? "Deleting..." : "Yes, delete it"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="flex-1 py-2.5 bg-surface border border-border text-text-secondary font-medium rounded-xl hover:text-text-primary transition-colors text-sm"
+            >
+              Keep it
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onResume(session.id)}
+            className="flex-1 py-2.5 bg-primary/10 text-primary font-semibold rounded-xl hover:bg-primary/20 transition-colors text-sm"
+          >
+            Resume workout
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="px-4 py-2.5 bg-surface border border-border text-text-muted font-medium rounded-xl hover:border-red-500/40 hover:text-red-400 transition-colors text-sm whitespace-nowrap"
+          >
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   );
 }

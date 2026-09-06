@@ -30,6 +30,7 @@ import {
   useLogSet,
   useFinishSession,
   useCancelSession,
+  useDeleteSession,
   useUnfinishedSessions,
 } from "@/lib/hooks/use-workout";
 import {
@@ -59,6 +60,7 @@ export default function WorkoutPage() {
   const logSet = useLogSet(selectedDate);
   const finishSession = useFinishSession(selectedDate);
   const cancelSession = useCancelSession(selectedDate);
+  const deleteSession = useDeleteSession(selectedDate);
   const { data: unfinished } = useUnfinishedSessions();
 
   const [showBrowser, setShowBrowser] = useState(false);
@@ -468,6 +470,30 @@ export default function WorkoutPage() {
     setDoneExerciseIds(new Set());
   }
 
+  /**
+   * Permanently delete an unfinished workout the user will never finish.
+   *
+   * Hard delete, not the soft-cancel used for an ACTIVE session: this is the
+   * "just get rid of it" path, and the card confirms first because the logged
+   * sets go with it via cascade and there is no undo.
+   */
+  async function handleDeleteUnfinished(sessionId: string) {
+    // If it happened to be the session being logged, drop it from local state
+    // first so the UI cannot keep pointing at a row that no longer exists.
+    if (sessionId === activeSessionId) {
+      setActiveSessionId(null);
+      setActiveSessionDate(null);
+      setActiveExercise(null);
+      setShowFinish(false);
+    }
+    try {
+      await deleteSession.mutateAsync({ sessionId });
+    } catch {
+      // onSettled refetches either way, so a failure simply leaves the card
+      // in place rather than silently pretending it was deleted.
+    }
+  }
+
   const unfinishedList =
     unfinishedSessions.length > 0 ? (
       <div className="space-y-3">
@@ -481,6 +507,11 @@ export default function WorkoutPage() {
             sessionDate={session.date.slice(0, 10)}
             isPast={session.date.slice(0, 10) < todayStr}
             onResume={handleResumeSession}
+            onDelete={handleDeleteUnfinished}
+            deleting={
+              deleteSession.isPending &&
+              deleteSession.variables?.sessionId === session.id
+            }
           />
         ))}
       </div>
