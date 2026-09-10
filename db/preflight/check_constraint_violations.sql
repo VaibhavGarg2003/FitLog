@@ -6,8 +6,8 @@
 --
 -- Operator path (deliberately outside prisma migrate deploy):
 --   1. Run this file. Every violation_count must be 0.
---   2. Only then run db/validate/001_validate_constraints.sql as postgres
---      (the break-glass credential — NOT DIRECT_URL / fitlog_migrate).
+--   2. Only then run db/validate/001_validate_constraints.sql as the tables'
+--      owner: fitlog_migrate (DIRECT_URL) works, and so does postgres.
 --
 -- Why this sits outside migrate deploy: a VALIDATE CONSTRAINT migration would
 -- run automatically on the next deploy and fail against violating data.

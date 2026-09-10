@@ -39,11 +39,13 @@
 --    still succeeds and the new table simply has no RLS. Verify after adding a
 --    table: SELECT relrowsecurity FROM pg_class WHERE relname = '<table>';
 --
--- 2. It depends on 001_least_privilege_roles.sql. The function runs as
---    `postgres` (SECURITY DEFINER), but enabling RLS requires OWNING the table.
---    Since the role split, new tables are owned by `fitlog_migrate`, so 001
---    runs `GRANT fitlog_migrate TO postgres` specifically to keep this working.
---    Remove that grant and auto-RLS breaks — silently, per point 1.
+-- 2. It relies on a GRANT made by 001_least_privilege_roles.sql. The function
+--    runs as `postgres` (SECURITY DEFINER), but enabling RLS requires OWNING the
+--    table. Since the role split, new tables are owned by `fitlog_migrate`, so
+--    001 runs `GRANT fitlog_migrate TO postgres` specifically to keep this
+--    working. Remove that grant and auto-RLS breaks — silently, per point 1.
+--    The dependency runs one way: THIS file's protection needs 001's grant.
+--    001 itself contains no SQL that uses this function and runs fine without it.
 --
 -- GRANTS
 -- ──────
@@ -61,11 +63,15 @@
 --
 --   psql "$SUPERUSER_DIRECT_URL" -f db/roles/000_rls_auto_enable.sql
 --
--- SAFE TO RE-RUN. CREATE OR REPLACE for the function; the trigger is created
--- only if missing, then re-owned and re-enabled. Running it against production
--- (which already has both) is a no-op.
+-- SAFE TO RE-RUN, AND IT REPAIRS. CREATE OR REPLACE for the function. The
+-- trigger is checked for its event, function and tag set — not merely its name —
+-- and dropped and recreated if any of those differ, then re-owned and
+-- re-enabled. Against production (which already has both, correctly wired) it
+-- changes nothing.
 --
--- Numbered 000 because 001 depends on it.
+-- Numbered 000: run it before 001, and before applying Prisma migrations to a
+-- fresh database, so every table created afterwards is covered. See point 2 for
+-- why 001 does not strictly need it.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 \set ON_ERROR_STOP on
@@ -107,10 +113,44 @@ $function$
 ALTER FUNCTION public.rls_auto_enable() OWNER TO postgres;
 
 -- ── 2. The event trigger ────────────────────────────────────────────────────
--- CREATE EVENT TRIGGER has no IF NOT EXISTS, so guard it to keep this re-runnable.
+-- Verify the WIRING, not just the name. A trigger called ensure_rls that fires on
+-- the wrong event, calls a different function, or filters a narrower tag set
+-- would otherwise be accepted and switched back on — and this script would report
+-- success while auto-RLS stayed partly or wholly broken. Anything that does not
+-- match production exactly is dropped and recreated. (CREATE EVENT TRIGGER has no
+-- IF NOT EXISTS, which is why this is a DO block at all.)
 DO $$
+DECLARE
+  t            record;
+  needs_create boolean;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_event_trigger WHERE evtname = 'ensure_rls') THEN
+  SELECT evtevent, evtfoid, evttags
+    INTO t
+    FROM pg_event_trigger
+   WHERE evtname = 'ensure_rls';
+
+  IF NOT FOUND THEN
+    needs_create := true;
+
+  ELSIF t.evtevent = 'ddl_command_end'
+    AND t.evtfoid  = 'public.rls_auto_enable()'::regprocedure
+    AND t.evttags IS NOT NULL
+    -- Order-insensitive tag comparison, pinned to the C collation so the result
+    -- cannot depend on the database's locale.
+    AND (SELECT array_agg(x ORDER BY x COLLATE "C") FROM unnest(t.evttags) AS x)
+      = (SELECT array_agg(x ORDER BY x COLLATE "C")
+           FROM unnest(ARRAY['CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO']::text[]) AS x)
+  THEN
+    needs_create := false;
+
+  ELSE
+    RAISE NOTICE 'ensure_rls exists but is mis-wired (event=%, function=%, tags=%) - recreating it',
+      t.evtevent, t.evtfoid::regprocedure, t.evttags;
+    DROP EVENT TRIGGER ensure_rls;
+    needs_create := true;
+  END IF;
+
+  IF needs_create THEN
     CREATE EVENT TRIGGER ensure_rls
       ON ddl_command_end
       WHEN TAG IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
@@ -120,8 +160,8 @@ END
 $$;
 
 -- Match production: owned by postgres, enabled ('O').
--- Re-enabling is intentional — if someone disabled the safety net, re-running
--- this file restores it.
+-- Re-enabling is intentional. Together with the wiring check above, re-running
+-- this file restores a trigger that was missing, disabled, OR mis-wired.
 ALTER EVENT TRIGGER ensure_rls OWNER TO postgres;
 ALTER EVENT TRIGGER ensure_rls ENABLE;
 
