@@ -38,7 +38,7 @@
 -- property this whole script depends on.
 --
 -- ═══════════════════════════════════════════════════════════════════════════
--- HOW TO RUN — as `postgres`, via DIRECT connection (port 5432, NOT the pooler)
+-- HOW TO RUN — as `postgres`, session-mode connection on port 5432 (direct host or session pooler; never the 6543 transaction pooler)
 --
 --   psql "$SUPERUSER_DIRECT_URL" \
 --     -v migrate_password="$(openssl rand -hex 32)" \

@@ -21,7 +21,7 @@
 --   • Runtime uses ACCOUNT_DELETION_DATABASE_URL (that role). Never grant
 --     EXECUTE to fitlog_app.
 --
--- HOW TO RUN — as `postgres`, via DIRECT connection (port 5432):
+-- HOW TO RUN — as `postgres`, session-mode connection on port 5432 (direct host or session pooler):
 --
 --   ⚠ PREREQUISITE: db/roles/001_least_privilege_roles.sql must be applied
 --   first (creates schema `private`). This script does not create that schema

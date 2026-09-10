@@ -107,11 +107,12 @@ SELECT * FROM private.cross_service_fk_drift();
 
 | File | Purpose |
 |---|---|
-| `000_rls_auto_enable.sql` | `public.rls_auto_enable()` + `ensure_rls` event trigger — auto-enables RLS on every new `public` table. Extracted verbatim from production. **Run first**; 001 depends on it. |
+| `000_rls_auto_enable.sql` | `public.rls_auto_enable()` + `ensure_rls` event trigger — auto-enables RLS on every new `public` table. Extracted verbatim from production. **Run first** (step 2 below). `001` runs fine without it, but its `GRANT fitlog_migrate TO postgres` is what keeps this trigger working. |
 | `001_least_privilege_roles.sql` | Creates roles, transfers ownership, sets grants |
 | `001_least_privilege_roles_rollback.sql` | Reverses everything |
 | `002_delete_user_account.sql` | `private.delete_user_account` + `fitlog_deleter` role (account deletion). **Requires 001 first** (schema `private`). |
 | `EXTRACT_rls_auto_enable.md` | Read-only commands to re-dump the live function — use to check production and `000` have not drifted apart |
+| `check_rls_auto_enable.sql` | Read-only fingerprint of the function **and** trigger (body hash, owner, `SECURITY DEFINER`, `search_path`, event, target function, tags, enabled state). Used by the drift check. |
 
 These are **not** Prisma migrations and must never be moved into
 `prisma/migrations/`. They create roles (a cluster-level operation) and must run as
@@ -161,14 +162,23 @@ openssl rand -hex 32   # → fitlog_app password
 > `DATABASE_URL` unchanged and the app fails to connect — a confusing outage caused
 > purely by the password alphabet. Hex is `[0-9a-f]` only, so it is always URI-safe.
 
-**2. Apply** — direct connection, port 5432, **not** the pooler:
+**2. Apply** — as `postgres`, over a **session-mode** connection on port **5432**: the
+direct host *or* the session pooler both work. **Never** the transaction pooler on port
+6543 — these scripts rely on session-level behaviour that transaction pooling breaks.
+
+The RLS auto-enable trigger first, then the roles:
 
 ```bash
+psql "$SUPERUSER_DIRECT_URL" -f db/roles/000_rls_auto_enable.sql
+
 psql "$SUPERUSER_DIRECT_URL" \
   -v migrate_password='...' \
   -v app_password='...' \
   -f db/roles/001_least_privilege_roles.sql
 ```
+
+`000` is safe against a database that already has the trigger: it checks the wiring,
+changes nothing if it is correct, and rebuilds it if it is not.
 
 **3. Switch the application over.** Until this step the roles exist but nothing uses
 them — the change is inert and safe.
@@ -196,13 +206,13 @@ them — the change is inert and safe.
 > route the connection to. Direct connections already encode the project in the
 > hostname, so they take a bare role name.
 
-This project's production URLs use **different hosts for the two variables** — check
-each one rather than assuming:
+This project's production URLs use the **same pooler host on different ports** — transaction
+mode for the app, session mode for migrations. Check each one rather than assuming:
 
 | Variable | Host | New username | Port |
 |---|---|---|---|
 | `DATABASE_URL` (app) | `aws-1-ap-southeast-2.pooler.supabase.com` | `fitlog_app.<ref>` | 6543 |
-| `DIRECT_URL` (migrations) | `db.<ref>.supabase.co` | `fitlog_migrate` | 5432 |
+| `DIRECT_URL` (migrations) | `aws-1-ap-southeast-2.pooler.supabase.com` (session mode) | `fitlog_migrate.<ref>` | 5432 |
 
 Set both in Vercel **and** in the local `.env.prod.local`. Change only the username and
 password — keep the host, port, and any query string exactly as they are.

@@ -1,11 +1,12 @@
--- Validate NOT VALID check constraints (operator-run, break-glass only)
+-- Validate NOT VALID check constraints (operator-run)
 -- ═════════════════════════════════════════════════════════════════════
 --
 -- Run ONLY after db/preflight/check_constraint_violations.sql returns
 -- zero violations for every row.
 --
--- Run as `postgres` (the break-glass credential), NOT as fitlog_migrate
--- (DIRECT_URL) and never as fitlog_app.
+-- Run as a role that OWNS these tables — VALIDATE CONSTRAINT requires ownership.
+-- Since the role split that is fitlog_migrate (DIRECT_URL); postgres also works.
+-- Never fitlog_app, which owns nothing.
 --
 -- This file is deliberately OUTSIDE prisma/migrations/. migrate deploy would
 -- apply a VALIDATE migration automatically and fail against residual data.

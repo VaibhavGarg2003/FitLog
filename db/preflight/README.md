@@ -7,8 +7,9 @@ Read-only checks that count rows violating each CHECK predicate added by
 
 1. Run `check_constraint_violations.sql` against the target database.
 2. Every `violation_count` must be **0**.
-3. Only then run `db/validate/001_validate_constraints.sql` as **`postgres`**
-   (break-glass), **not** `DIRECT_URL` / `fitlog_migrate`.
+3. Only then run `db/validate/001_validate_constraints.sql` as a role that **owns**
+   the constrained tables — `fitlog_migrate` via `DIRECT_URL` works (verified in
+   production), and so does `postgres`. Not `fitlog_app`, which owns nothing.
 
 ## Why this is outside `prisma migrate deploy`
 
