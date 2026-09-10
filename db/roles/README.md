@@ -107,10 +107,11 @@ SELECT * FROM private.cross_service_fk_drift();
 
 | File | Purpose |
 |---|---|
+| `000_rls_auto_enable.sql` | `public.rls_auto_enable()` + `ensure_rls` event trigger — auto-enables RLS on every new `public` table. Extracted verbatim from production. **Run first**; 001 depends on it. |
 | `001_least_privilege_roles.sql` | Creates roles, transfers ownership, sets grants |
 | `001_least_privilege_roles_rollback.sql` | Reverses everything |
 | `002_delete_user_account.sql` | `private.delete_user_account` + `fitlog_deleter` role (account deletion). **Requires 001 first** (schema `private`). |
-| `EXTRACT_rls_auto_enable.md` | Read-only commands to dump the live RLS auto-enable function (gap) |
+| `EXTRACT_rls_auto_enable.md` | Read-only commands to re-dump the live function — use to check production and `000` have not drifted apart |
 
 These are **not** Prisma migrations and must never be moved into
 `prisma/migrations/`. They create roles (a cluster-level operation) and must run as
@@ -118,18 +119,27 @@ These are **not** Prisma migrations and must never be moved into
 
 ---
 
-## TODO / GAP — `rls_auto_enable` is not version-controlled
+## `rls_auto_enable` — now version-controlled (`000_rls_auto_enable.sql`)
 
-`001_least_privilege_roles.sql` and earlier sections of this README treat
-`public.rls_auto_enable()` / the `ensure_rls` event trigger as load-bearing.
-**The repo contains only comments** — no `CREATE FUNCTION`, no
-`CREATE EVENT TRIGGER`. A rebuild from this repo produces a database with no
-auto-RLS, and the live function is documented as swallowing its own errors.
+`001_least_privilege_roles.sql` and later sections of this README treat
+`public.rls_auto_enable()` / the `ensure_rls` event trigger as load-bearing. Until
+`000` existed, **the repo contained only comments about them** — a rebuild from the
+repo would silently have produced a database with no auto-RLS.
 
-**Do not invent the function body.** Extract it from a live database as
-`postgres` using the commands in `EXTRACT_rls_auto_enable.md`, then commit
-the real definition. Until that lands, this is an explicit, closable gap —
-not an implied, version-controlled guarantee.
+`000_rls_auto_enable.sql` closes that gap. Its function body is **extracted verbatim
+from production** (PostgreSQL 17.6, via `pg_get_functiondef`), not reconstructed —
+this function runs as `postgres` on every table creation and fails silently, so a
+subtly wrong rewrite would be a security bug nothing reports.
+
+Verified on a throwaway PostgreSQL 17 before committing: applies cleanly, re-runs as
+a no-op, enables RLS for `CREATE TABLE` / `CREATE TABLE AS` / `SELECT INTO` in
+`public`, skips other schemas, restores the trigger if someone disabled it, and the
+installed function source is **byte-identical** to production's — compared inside the
+database, not as text dumps: `md5(prosrc)` = `99be20677b456ea8d3be47bdd44fb369`,
+953 bytes, on both.
+
+**Do not "improve" the function in place.** If production's definition ever changes,
+re-extract with `EXTRACT_rls_auto_enable.md` and replace the body in `000` wholesale.
 
 
 ---
