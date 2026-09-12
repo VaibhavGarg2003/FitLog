@@ -42,7 +42,11 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/supabase/prisma";
-import { NotFoundError } from "@/lib/utils/errors";
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from "@/lib/utils/errors";
 
 /** Transaction client shape used by lock/touch helpers and mutation bodies. */
 type Tx = Prisma.TransactionClient;
@@ -265,7 +269,11 @@ export async function getSessionsByDate(userId: string, date: string) {
             },
           },
         },
-        orderBy: { createdAt: "asc" },
+        // set_number is the tie-breaker, not decoration. A bulk import writes
+        // many rows in one transaction; if two ever share a created_at, the
+        // database is free to return them in any order, and both set lists in
+        // the UI render in exactly this order without re-sorting.
+        orderBy: [{ createdAt: "asc" }, { setNumber: "asc" }],
       },
     },
     orderBy: { createdAt: "desc" },
@@ -698,4 +706,428 @@ export async function getUnfinishedSessionsForUser(userId: string) {
     orderBy: { date: "desc" },
     take: 20,
   });
+}
+
+/**
+ * Shown when an AI import collides with sets an earlier attempt already saved.
+ * Points at what the user can actually do: the saved sets are on the workout
+ * page, and removing them from the draft lets the rest go through.
+ */
+const STALE_DRAFT_MESSAGE =
+  "Some of this workout was already saved — you can see it in your workout list. Remove those exercises here, then add the rest.";
+
+/** One row of an AI import, ready for createMany. */
+export interface PlannedImportRow {
+  sessionId: string;
+  exerciseId: string;
+  setNumber: number;
+  weight: number | null;
+  reps: number | null;
+  rpe: number | null;
+  isWarmup: boolean;
+  clientRequestId: string;
+  createdAt: Date;
+}
+
+/**
+ * Turn a reviewed draft into concrete set rows: assign set numbers and a
+ * strictly increasing created_at.
+ *
+ * PURE, and exported, because it holds the two invariants most worth testing
+ * and the surrounding transaction cannot be unit-tested without a database:
+ *
+ *   • set_number continues from what the session already holds, per exercise,
+ *     and keeps counting when the SAME exercise appears twice in one payload
+ *     (a user can describe bench at the top and again at the bottom)
+ *   • created_at increases by 1ms per row, so the order the user described the
+ *     workout in survives a bulk insert — Postgres now() is the transaction
+ *     start time, identical for every row, and both set lists in the UI render
+ *     in created_at order without re-sorting
+ *
+ * `nextNumber` is consumed and mutated: the caller seeds it from the session's
+ * current maxima.
+ */
+export function planImportRows(input: {
+  sessionId: string;
+  exercises: Array<{
+    exerciseId: string;
+    sets: Array<{
+      weight?: number | null;
+      reps?: number | null;
+      rpe?: number | null;
+      isWarmup: boolean;
+      clientRequestId: string;
+    }>;
+  }>;
+  nextNumber: Map<string, number>;
+  baseMs: number;
+}): PlannedImportRow[] {
+  let offset = 0;
+
+  return input.exercises.flatMap((exercise) =>
+    exercise.sets.map((set) => {
+      const setNumber = input.nextNumber.get(exercise.exerciseId) ?? 1;
+      input.nextNumber.set(exercise.exerciseId, setNumber + 1);
+
+      return {
+        sessionId: input.sessionId,
+        exerciseId: exercise.exerciseId,
+        setNumber,
+        weight: set.weight ?? null,
+        reps: set.reps ?? null,
+        rpe: set.rpe ?? null,
+        isWarmup: set.isWarmup,
+        clientRequestId: set.clientRequestId,
+        createdAt: new Date(input.baseMs + offset++),
+      };
+    })
+  );
+}
+
+/**
+ * Commit one reviewed AI draft: find-or-create the session, insert every set,
+ * optionally finish — all inside ONE transaction.
+ *
+ * WHY ONE TRANSACTION: a half-imported workout is worse than none. The user
+ * would have to find which of twenty sets landed and delete them by hand, and
+ * only while the session is still IN_PROGRESS. Either the whole paragraph
+ * becomes rows or nothing does.
+ *
+ * IDEMPOTENCY — two checks, because they cover different failures:
+ *
+ *   (a) sets already present. Every set carries a client_request_id generated
+ *       once per import. If any of them already exists for this user, this is
+ *       a retry of a request that DID commit (the client just never saw the
+ *       response) — return that session untouched. This is the general case
+ *       and covers appends, finishes and partial redeliveries.
+ *
+ *   (b) session already stamped. workout_sessions.ai_import_id is unique per
+ *       user, so a session created by this import is findable directly. It is
+ *       the audit/undo handle, and a second net for the create path.
+ *
+ * SET NUMBERING: set_number is derived here from max+1 per exercise, INSIDE
+ * the lock, exactly like addSet. Numbers are assigned in JS before a single
+ * createMany rather than one insert per set: forty sequential round trips to a
+ * remote Postgres would risk the transaction timeout.
+ *
+ * CREATED_AT IS SET EXPLICITLY, and that is load-bearing. Postgres now() is
+ * the TRANSACTION start time, so every row of a bulk insert shares one
+ * timestamp; getSessionsByDate orders sets by created_at, and both set lists
+ * in the UI render in that order. Identical timestamps would let the database
+ * hand back "set 3, set 1, set 2". Explicit ascending timestamps preserve the
+ * order the user described the workout in.
+ */
+export async function importWorkoutSets(
+  userId: string,
+  data: {
+    importId: string;
+    date: string;
+    exercises: Array<{
+      exerciseId: string;
+      sets: Array<{
+        weight?: number | null;
+        reps?: number | null;
+        rpe?: number | null;
+        isWarmup: boolean;
+        clientRequestId: string;
+      }>;
+    }>;
+    finish: boolean;
+    durationMin?: number;
+    notes?: string;
+  },
+  buildCompletion: (sets: FinishSessionSetRow[]) => {
+    durationMin: number;
+    rpe?: number;
+    caloriesBurnedLow: number;
+    caloriesBurnedHigh: number;
+    notes?: string;
+  }
+): Promise<{
+  sessionId: string;
+  createdSession: boolean;
+  setsAdded: number;
+  finished: boolean;
+  replayed: boolean;
+}> {
+  const requestIds = data.exercises.flatMap((exercise) =>
+    exercise.sets.map((set) => set.clientRequestId)
+  );
+
+  const runImport = async () =>
+    prisma.$transaction(
+      async (tx) => {
+        // ── SERIALIZE EVERY ATTEMPT AT THIS IMPORT — first statement ──
+        //
+        // Without this, two identical requests never touch a common row, so
+        // nothing makes them queue:
+        //   A and B both pass the replay checks (neither can see the other's
+        //   uncommitted rows). A appends to the day's open session S and
+        //   FINISHES it. B was waiting on S's row lock; when A commits, B
+        //   re-evaluates under READ COMMITTED, S is no longer IN_PROGRESS, so
+        //   B matches nothing, creates a SECOND session and finishes that.
+        //   No unique index is violated — per-set keys are scoped to a session
+        //   and only a created session carries ai_import_id — so the P2002
+        //   retry below never fires. Two immutable copies of one workout.
+        //
+        // A transaction-scoped advisory lock on (user, importId) is the
+        // serialization point the data model does not provide. The second
+        // attempt blocks here until the first commits, and the replay checks
+        // BELOW then see its rows — which is why they run after this line.
+        // The wait is BOUNDED. An advisory lock waits inside the transaction,
+        // so it spends the same budget the work needs: if the first attempt
+        // takes 4.8s of a 5s transaction, the second would acquire the lock
+        // with nothing left and fail on the work instead of answering "already
+        // saved". lock_timeout caps the wait at 2s and leaves the rest for the
+        // import itself. SET LOCAL — scoped to this transaction, so it cannot
+        // leak onto the next request sharing this pooled connection.
+        await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`;
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${`${userId}:${data.importId}`}, 0)
+          )
+        `;
+        // Scope the timeout to the advisory wait ONLY. Left in place it also
+        // applies to the session FOR UPDATE further down, and a timeout there
+        // would be reported as "this import is already running" — which would
+        // be a lie: that lock is contended by ordinary set logging, not by a
+        // second copy of this request.
+        await tx.$executeRaw`SET LOCAL lock_timeout = 0`;
+
+        // ── (a) Replay: were these exact sets already written? ──
+        //
+        // Every set carries a client_request_id minted once when the draft was
+        // created and persisted with it. If ALL of them are already present,
+        // this is a retry of a request that committed and whose response was
+        // lost — return that session, write nothing.
+        const alreadyWritten = await tx.exerciseSet.findMany({
+          where: {
+            clientRequestId: { in: requestIds },
+            session: { userId },
+          },
+          select: { sessionId: true, clientRequestId: true },
+        });
+
+        const writtenIds = new Set(
+          alreadyWritten
+            .map((row) => row.clientRequestId)
+            .filter((id): id is string => id !== null)
+        );
+
+        if (writtenIds.size === requestIds.length && alreadyWritten.length > 0) {
+          return {
+            sessionId: alreadyWritten[0].sessionId,
+            createdSession: false,
+            setsAdded: 0,
+            finished: false,
+            replayed: true,
+          };
+        }
+
+        // ── A PARTIAL match is a conflict, and we refuse to guess ──
+        //
+        // An earlier version filtered the known keys out and inserted the rest.
+        // That was wrong in the case it most mattered: the user deletes a set
+        // in the review, imports, the response is lost, and the RECOVERED draft
+        // still holds the original keys — so the "missing" key is the set they
+        // deliberately removed, and filtering would resurrect it. It can also
+        // split one import across two sessions, since keys are only unique per
+        // session.
+        //
+        // Refusing costs a rare, honest error. Guessing silently rewrites what
+        // the user decided.
+        if (writtenIds.size > 0) {
+          throw new ConflictError(STALE_DRAFT_MESSAGE);
+        }
+
+        // ── (b) This import id already created a session, but the payload differs ──
+        //
+        // Reaching here means check (a) found NONE of these keys, so this is not
+        // a replay of what that session holds. It used to be answered as one —
+        // `replayed: true`, nothing written — which lost data silently: a user
+        // whose first import committed (response lost) resumes the draft, adds
+        // an exercise, removes the already-saved ones after the conflict above,
+        // and retries. Only the new exercise is sent; its keys are new; the old
+        // stamp matched; the server said "already saved"; the app cleared the
+        // draft. The new exercise was gone.
+        //
+        // A true replay is decided by the per-set keys alone (check a). A stamp
+        // hit with different keys is a stale draft, and says so. The client
+        // answers a 409 by starting a fresh import id — safe, because replay
+        // detection never depended on the id, only on the keys.
+        const stamped = await tx.workoutSession.findFirst({
+          where: { userId, aiImportId: data.importId },
+          select: { id: true },
+        });
+
+        if (stamped) {
+          throw new ConflictError(STALE_DRAFT_MESSAGE);
+        }
+
+      // ── Every exercise id must still exist ──
+      const exerciseIds = data.exercises.map((exercise) => exercise.exerciseId);
+      const known = await tx.exercise.findMany({
+        where: { id: { in: exerciseIds } },
+        select: { id: true },
+      });
+
+      if (known.length !== new Set(exerciseIds).size) {
+        // Stale draft naming an exercise that no longer exists. Fail before
+        // writing anything rather than half-way through with an FK error.
+        throw new NotFoundError("One of those exercises no longer exists");
+      }
+
+      // ── Find or create the session for this date ──
+      // Append to the day's in-progress session when there is one, so an AI
+      // import behaves exactly like tapping sets in during that workout.
+      //
+      // The date parameter is bound as TEXT and cast with ::date on purpose.
+      // `date` is a @db.Date column; binding a JS Date sends a timestamp, and
+      // Postgres then casts one side using the session's timezone. On a
+      // non-UTC database session that comparison stops matching, and the
+      // import would quietly create a SECOND session every time instead of
+      // appending — splitting one day's training across two sessions.
+      const openSessions = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM workout_sessions
+        WHERE user_id = ${userId}
+          AND date = ${data.date}::date
+          AND status = 'IN_PROGRESS'
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `;
+
+      let sessionId = openSessions[0]?.id ?? null;
+      let createdSession = false;
+
+      if (!sessionId) {
+        const created = await tx.workoutSession.create({
+          data: {
+            userId,
+            date: new Date(data.date),
+            mode: "RECALL",
+            status: "IN_PROGRESS",
+            aiImportId: data.importId,
+          },
+          select: { id: true },
+        });
+        sessionId = created.id;
+        createdSession = true;
+      }
+
+      // ── Numbering: continue from what this session already holds ──
+      const existingMax = await tx.exerciseSet.groupBy({
+        by: ["exerciseId"],
+        where: { sessionId, exerciseId: { in: exerciseIds } },
+        _max: { setNumber: true },
+      });
+
+      const nextNumber = new Map<string, number>();
+      for (const row of existingMax) {
+        nextNumber.set(row.exerciseId, (row._max.setNumber ?? 0) + 1);
+      }
+
+      // Timestamps come from the DATABASE, never the application clock:
+      // every other row in this table gets created_at from Postgres now(), and
+      // stamping these from a serverless instance would let clock skew between
+      // instances interleave an import with sets logged by hand.
+      //
+      // now() alone is not enough either. It is the TRANSACTION start time, so
+      // a second import that began before the first committed — and then sat
+      // waiting on a lock — would stamp rows EARLIER than the ones already in
+      // the session, and they would render above them. Taking the greater of
+      // now() and the session's newest row makes the sequence monotonic no
+      // matter how long this transaction waited.
+      const [clock] = await tx.$queryRaw<[{ now: Date }]>`SELECT now()`;
+      const latest = await tx.exerciseSet.aggregate({
+        where: { sessionId },
+        _max: { createdAt: true },
+      });
+
+      const base = Math.max(
+        clock.now.getTime(),
+        (latest._max.createdAt?.getTime() ?? 0) + 1
+      );
+
+      const rows = planImportRows({
+        sessionId,
+        exercises: data.exercises,
+        nextNumber,
+        baseMs: base,
+      });
+
+      await tx.exerciseSet.createMany({ data: rows });
+      await touchSessionActivity(tx, sessionId);
+
+      // ── Optionally complete the session in the same transaction ──
+      let finished = false;
+      if (data.finish) {
+        const sets = await tx.exerciseSet.findMany({
+          where: { sessionId },
+          include: {
+            exercise: { select: { category: true, metValue: true } },
+          },
+          orderBy: { createdAt: "asc" },
+        });
+
+        const completion = buildCompletion(sets);
+
+        await tx.workoutSession.update({
+          where: { id: sessionId },
+          data: {
+            status: "COMPLETED",
+            durationMin: completion.durationMin,
+            rpe: completion.rpe,
+            caloriesBurnedLow: completion.caloriesBurnedLow,
+            caloriesBurnedHigh: completion.caloriesBurnedHigh,
+            endedAt: new Date(),
+            notes: completion.notes,
+          },
+        });
+        finished = true;
+      }
+
+        return {
+          sessionId,
+          createdSession,
+          setsAdded: rows.length,
+          finished,
+          replayed: false,
+        };
+      },
+      // maxWait (waiting for a connection) and timeout (running) ADD UP, and
+      // the whole request has to fit inside the platform's ~10s function
+      // ceiling with auth, validation and the response on top. 5+2 leaves
+      // headroom; 8+4 did not.
+      { timeout: 5000, maxWait: 2000 }
+    );
+
+  try {
+    return await runImport();
+  } catch (error) {
+    // Two identical imports racing: both pass the replay checks (neither can
+    // see the other's uncommitted rows under READ COMMITTED) and one loses on
+    // a unique index — (session_id, client_request_id) or (user_id,
+    // ai_import_id). The data is correct either way: exactly one copy landed.
+    // Reporting that as a 500 would tell the user their workout failed while
+    // it is sitting in the database. Re-run, and this time the replay check
+    // finds the winner's rows.
+    // A bounded wait that expired (Postgres 55P03) means another attempt at
+    // THIS import is still running. Saying so beats a generic 500: the write
+    // is in flight, not lost, and retrying in a moment will report it as a
+    // replay.
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("55P03") || /lock timeout/i.test(message)) {
+      throw new ValidationError(
+        "This workout is already being saved. Give it a moment, then check the workout list."
+      );
+    }
+
+    const isUniqueViolation =
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002";
+
+    if (!isUniqueViolation) throw error;
+    return runImport();
+  }
 }

@@ -47,3 +47,66 @@ export async function findExercises(filters: {
     },
   });
 }
+
+/** Shape every AI-workout matching path works with. */
+export type ExerciseMatchRow = {
+  id: string;
+  name: string;
+  muscleGroup: string;
+  category: string;
+  metValue: number;
+  isCompound: boolean;
+};
+
+/**
+ * The whole catalog, for the AI workout parser.
+ *
+ * WHY THE WHOLE THING AND NOT A PER-NAME QUERY: matching happens in memory
+ * against a deterministic ladder (exact → alias → prefix → contains), and a
+ * per-name `contains` query — the shape findFoodCandidates uses for food —
+ * cannot answer "is this prefix match ambiguous?", which is exactly the check
+ * that stops "rows" resolving to "Rowing Machine". The table is 155 seeded
+ * rows that change only on a re-seed, so one unfiltered read is cheaper than
+ * fifteen OR-ed LIKE scans and strictly more correct.
+ *
+ * Callers cache this per request; see ai-workout.service.ts.
+ */
+export async function findAllExercisesForMatching(): Promise<ExerciseMatchRow[]> {
+  return prisma.exercise.findMany({
+    orderBy: [{ muscleGroup: "asc" }, { name: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      muscleGroup: true,
+      category: true,
+      metValue: true,
+      isCompound: true,
+    },
+  });
+}
+
+/**
+ * Ownership-free existence check for a set of exercise ids.
+ *
+ * Used by the AI import right before it writes: the ids come back from the
+ * client, which got them from a parse response, and a stale draft could name
+ * an exercise that has since been removed. Writing a set with a dangling FK
+ * would fail mid-transaction with a Prisma error instead of a clear message.
+ */
+export async function findExercisesByIds(
+  ids: string[]
+): Promise<ExerciseMatchRow[]> {
+  if (ids.length === 0) return [];
+
+  return prisma.exercise.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      name: true,
+      muscleGroup: true,
+      category: true,
+      metValue: true,
+      isCompound: true,
+    },
+  });
+}
