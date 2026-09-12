@@ -10,9 +10,12 @@
 --
 -- Readable as fitlog_migrate; the break-glass credential is not needed.
 --
--- Two choices keep the line comparable across databases and sessions:
---   * the trigger's function is rendered schema-qualified from the catalog, so
---     the output does not depend on the session's search_path;
+-- Three choices keep the output ONE comparable line across databases and sessions:
+--   * only the zero-argument public.rls_auto_enable() is selected — the signature
+--     the trigger calls — so a future overload of the same name cannot add a row
+--     and fake a drift alarm (a missing function still prints nothing);
+--   * the trigger's function is rendered schema-qualified, with its argument list,
+--     straight from the catalog, so the output does not depend on search_path;
 --   * tags are sorted in the C collation, so a trigger whose tags were declared
 --     in a different order — but is wired identically — prints the same line.
 --
@@ -25,7 +28,8 @@ SELECT
   p.prosecdef                                            AS fn_security_definer,
   p.proconfig                                            AS fn_settings,
   t.evtevent                                             AS trg_event,
-  tn.nspname || '.' || tp.proname || '()'                AS trg_function,
+  tn.nspname || '.' || tp.proname
+    || '(' || pg_get_function_identity_arguments(tp.oid) || ')' AS trg_function,
   (SELECT array_agg(x ORDER BY x COLLATE "C")
      FROM unnest(t.evttags) AS x)                        AS trg_tags,
   t.evtenabled                                           AS trg_enabled,
@@ -36,4 +40,7 @@ LEFT JOIN pg_event_trigger t ON t.evtname = 'ensure_rls'
 LEFT JOIN pg_proc tp       ON tp.oid = t.evtfoid
 LEFT JOIN pg_namespace tn  ON tn.oid = tp.pronamespace
 WHERE n.nspname = 'public'
-  AND p.proname = 'rls_auto_enable';
+  AND p.proname = 'rls_auto_enable'
+  -- Zero-argument signature only: the one ensure_rls calls. Without this, any
+  -- overload of the name would add a second row and fake a drift alarm.
+  AND p.pronargs = 0;
