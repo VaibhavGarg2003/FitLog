@@ -22,6 +22,9 @@
  *                             answer: "not found", never "forbidden", so we
  *                             don't reveal that the resource exists)
  *   UpstreamError           — a dependency (LLM, Redis) failed (502)
+ *   ConflictError           — valid request that collides with something
+ *                             already written (409); the client must be able
+ *                             to tell this apart from a 400 to recover
  *   ServiceUnavailableError — feature not provisioned / ops gap (503)
  *
  * USAGE in every route's catch block:
@@ -64,6 +67,24 @@ export class UpstreamError extends UserFacingError {
   constructor(message: string) {
     super(message);
     this.name = "UpstreamError";
+  }
+}
+
+/**
+ * The request is valid, but it collides with something already written (409).
+ *
+ * A sixth class, and not a ValidationError, because the CLIENT must be able to
+ * tell the two apart to recover correctly. A 400 means "fix your input". This
+ * means "part of this was already saved — your draft is stale". The AI workout
+ * import recovers from it by starting a fresh import id, which it must never do
+ * on an ordinary validation failure. A shared status would force the client to
+ * match on message text to decide, which breaks the day the copy changes.
+ */
+export class ConflictError extends UserFacingError {
+  readonly httpStatus = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictError";
   }
 }
 

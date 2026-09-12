@@ -49,6 +49,8 @@ import {
 } from "./_components/logged-exercises";
 import { SaveTemplateModal } from "./_components/save-template-modal";
 import { UnfinishedSessionCard } from "./_components/unfinished-session-card";
+import { AIWorkoutInput } from "./_components/ai-workout-input";
+import { useProfile } from "@/lib/hooks/use-profile";
 import { localDateStr } from "@/lib/utils/local-date";
 
 export default function WorkoutPage() {
@@ -62,6 +64,23 @@ export default function WorkoutPage() {
   const cancelSession = useCancelSession(selectedDate);
   const deleteSession = useDeleteSession(selectedDate);
   const { data: unfinished } = useUnfinishedSessions();
+  // Only for stamping a saved AI draft with its owner — a shared browser must
+  // never offer one account's draft to another.
+  const { data: profile } = useProfile();
+
+  // What the last AI import did, so the page can say so instead of silently
+  // refreshing. Cleared when the user acts again.
+  const [aiImportSummary, setAiImportSummary] = useState<{
+    setsAdded: number;
+    finished: boolean;
+    replayed: boolean;
+  } | null>(null);
+
+  // While the AI card is open, Start Workout and the templates are hidden.
+  // Both start a SEPARATE, empty session; tapping one mid-review stranded the
+  // draft and left two half-logged workouts. More exercises are added inside
+  // the review instead, by AI or by hand.
+  const [aiFlowActive, setAiFlowActive] = useState(false);
 
   const [showBrowser, setShowBrowser] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -804,20 +823,68 @@ export default function WorkoutPage() {
         /* Idle: start options left, today's sessions right on laptop */
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5 lg:items-start">
           <div className="space-y-4 lg:col-span-5">
-            <button
-              type="button"
-              onClick={handleStartSession}
-              disabled={startSession.isPending || startFromTemplate.isPending}
-              className="w-full py-4 bg-primary text-white font-bold rounded-2xl hover:bg-primary-hover disabled:opacity-50 transition-colors text-lg shadow-md"
-              style={{ boxShadow: "0 4px 20px rgba(34, 197, 94, 0.3)" }}
-            >
-              {startSession.isPending ? "Starting..." : "🏋️ Start Workout"}
-            </button>
-
-            <TemplateList
-              onStart={handleStartFromTemplate}
-              starting={startFromTemplate.isPending}
+            {/* Describe the whole session in one paragraph. Nothing is written
+                until the draft has been reviewed — see AIWorkoutReview. An
+                import appends to this date's in-progress session when there is
+                one, so it behaves like logging during that workout. */}
+            <AIWorkoutInput
+              // Remount per date: an open review belongs to the date it was
+              // started on, and switching the date strip must not carry it over.
+              key={selectedDate}
+              date={selectedDate}
+              userId={profile?.userId ?? null}
+              onActiveChange={setAiFlowActive}
+              onImported={(result) => {
+                setAiImportSummary({
+                  setsAdded: result.setsAdded,
+                  finished: result.finished,
+                  replayed: result.replayed,
+                });
+              }}
             />
+
+            {aiImportSummary && (
+              <div className="flex flex-wrap items-center gap-3 bg-primary/10 border border-primary/30 rounded-xl px-4 py-3">
+                <span className="text-sm text-text-primary">
+                  {aiImportSummary.replayed
+                    ? "That workout was already saved."
+                    : `Added ${aiImportSummary.setsAdded} set${
+                        aiImportSummary.setsAdded === 1 ? "" : "s"
+                      }${
+                        aiImportSummary.finished
+                          ? " and finished the workout."
+                          : ". Finish it when you are done."
+                      }`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAiImportSummary(null)}
+                  className="ml-auto text-sm text-text-muted hover:text-text-primary"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Hidden while the AI card is open — see aiFlowActive above. */}
+            {!aiFlowActive && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleStartSession}
+                  disabled={startSession.isPending || startFromTemplate.isPending}
+                  className="w-full py-4 bg-primary text-white font-bold rounded-2xl hover:bg-primary-hover disabled:opacity-50 transition-colors text-lg shadow-md"
+                  style={{ boxShadow: "0 4px 20px rgba(34, 197, 94, 0.3)" }}
+                >
+                  {startSession.isPending ? "Starting..." : "🏋️ Start Workout"}
+                </button>
+
+                <TemplateList
+                  onStart={handleStartFromTemplate}
+                  starting={startFromTemplate.isPending}
+                />
+              </>
+            )}
           </div>
 
           <div className="space-y-3 lg:col-span-7">

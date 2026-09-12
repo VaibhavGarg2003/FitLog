@@ -53,7 +53,72 @@ function getRedis(): Redis | null {
   return new Redis({
     url: process.env.UPSTASH_REDIS_REST_URL!,
     token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    // The client's default retry schedule spent ~4.5s failing against a host
+    // that no longer resolves — nearly half the ~10s function budget, before
+    // the AI call even started. One quick retry covers a genuine blip; a dead
+    // Redis should be noticed fast and bypassed (see runLimit below).
+    retry: { retries: 1, backoff: () => 100 },
   });
+}
+
+/** How long a rate-limit check may take before we stop waiting for it. */
+const LIMIT_CHECK_TIMEOUT_MS = 1500;
+
+/**
+ * Run a limiter, FAILING OPEN when Redis is unreachable.
+ *
+ * The header of this file has always said fail-open is the deliberate choice —
+ * "a fitness app should degrade, not die, when Redis blips". It was only
+ * implemented for the NOT-CONFIGURED case. A configured Redis that could not be
+ * reached threw straight out of `limiter.limit()`, so every AI route answered
+ * 500 and the user saw "Something went wrong" for a problem in a metering
+ * service they never interact with.
+ *
+ * That is what happened when the Upstash database was deleted: DNS for its
+ * hostname returned NXDOMAIN, and meal parsing, workout parsing and weekly
+ * insights all went down together — although all three AI providers were up.
+ *
+ * Now an unreachable or slow Redis lets the request through and logs loudly.
+ * The cost is that the AI budget is unmetered while Redis is down; the warning
+ * is how that gets noticed, exactly as for the not-configured case above.
+ */
+async function runLimit(
+  limiter: Ratelimit,
+  userId: string,
+  name: string
+): Promise<RateLimitResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const result = await Promise.race([
+      limiter.limit(userId),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`timed out after ${LIMIT_CHECK_TIMEOUT_MS}ms`)),
+          LIMIT_CHECK_TIMEOUT_MS
+        );
+      }),
+    ]);
+
+    return {
+      limited: !result.success,
+      remaining: result.remaining,
+      resetAt: new Date(result.reset),
+    };
+  } catch (error) {
+    const reason =
+      error instanceof Error
+        ? `${error.message}${error.cause ? ` (${String((error.cause as { code?: string }).code ?? error.cause)})` : ""}`
+        : String(error);
+
+    console.warn(
+      `[rate-limit] ${name}: Redis unreachable — FAILING OPEN, request allowed ` +
+        `and NOT metered. Check UPSTASH_REDIS_REST_URL. Cause: ${reason}`
+    );
+    return { limited: false };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -97,6 +162,30 @@ const insightLimiter = (() => {
   });
 })();
 
+/**
+ * AI Workout Parsing Rate Limiter
+ * ───────────────────────────────
+ * 10 requests per user per 24-hour sliding window.
+ *
+ * WHY 10 (and not the meal parser's 15)?
+ * A workout is logged once a day, not four times. 10 covers the session plus
+ * re-parses after an edit, and keeps its own budget: a user who has spent the
+ * day describing meals must still be able to log the gym.
+ *
+ * WHY ITS OWN PREFIX: shared keys would make one feature's traffic silently
+ * throttle the other, and the two limits are tuned for different behaviour.
+ */
+const workoutParserLimiter = (() => {
+  const redis = getRedis();
+  if (!redis) return null;
+
+  return new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(10, "1 d"),
+    prefix: "fitlog:ai:workout",
+  });
+})();
+
 export interface RateLimitResult {
   limited: boolean;
   remaining?: number;
@@ -115,13 +204,22 @@ export async function checkMealParserLimit(
     return { limited: false };
   }
 
-  const result = await mealParserLimiter.limit(userId);
+  return runLimit(mealParserLimiter, userId, "meal parser");
+}
 
-  return {
-    limited: !result.success,
-    remaining: result.remaining,
-    resetAt: new Date(result.reset),
-  };
+/**
+ * Check if a user has exceeded their AI workout parsing rate limit.
+ *
+ * @returns { limited: false } if Redis is not configured (development mode)
+ */
+export async function checkWorkoutParserLimit(
+  userId: string
+): Promise<RateLimitResult> {
+  if (!workoutParserLimiter) {
+    return { limited: false };
+  }
+
+  return runLimit(workoutParserLimiter, userId, "workout parser");
 }
 
 /**
@@ -134,11 +232,5 @@ export async function checkInsightLimit(
     return { limited: false };
   }
 
-  const result = await insightLimiter.limit(userId);
-
-  return {
-    limited: !result.success,
-    remaining: result.remaining,
-    resetAt: new Date(result.reset),
-  };
+  return runLimit(insightLimiter, userId, "weekly insight");
 }

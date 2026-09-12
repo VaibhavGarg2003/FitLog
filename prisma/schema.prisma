@@ -164,6 +164,17 @@ model WorkoutSession {
   status        SessionStatus @default(IN_PROGRESS)
   notes         String?
 
+  // Client-generated UUID identifying ONE AI import. Set only on a session
+  // this import created; an import that appends to an existing session leaves
+  // it alone (those sets are deduped by exercise_sets.client_request_id).
+  //
+  // WHY IT EXISTS: per-set idempotency is scoped to a session id, so it covers
+  // a retried append but not a retried import that also FINISHES the session —
+  // there the retry finds no IN_PROGRESS session, starts a second one, and logs
+  // the whole workout twice. Unique per user, so the retry finds its own first
+  // attempt instead.
+  aiImportId    String?      @map("ai_import_id")
+
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
 
@@ -188,6 +199,10 @@ model WorkoutSession {
   // in memory, making start-workout latency track that history. With it,
   // Postgres seeks straight to the stale rows; the NOT EXISTS anti-join is
   // then one probe each against exercise_sets(session_id), which is indexed.
+
+  @@unique([userId, aiImportId])
+  // Multi-NULL unique semantics in Postgres mean every non-import session can
+  // share (user_id, NULL) without colliding — only real import ids are unique.
 
   @@map("workout_sessions")
 }

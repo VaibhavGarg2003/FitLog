@@ -35,6 +35,8 @@ import {
   deleteSession,
   reapStaleSessions,
   getUnfinishedSessionsForUser,
+  importWorkoutSets,
+  type FinishSessionSetRow,
 } from "@/lib/repositories/workout.repository";
 import { NotFoundError } from "@/lib/utils/errors";
 
@@ -155,60 +157,137 @@ export async function finishSession(
     notes?: string;
   }
 ) {
-  const session = await finishActiveSessionForUser(
-    sessionId,
-    userId,
-    (sets) => {
-      let totalBurnLow = 0;
-      let totalBurnHigh = 0;
-
-      const hasCardio = sets.some((s) => s.exercise.category === "CARDIO");
-      const hasStrength = sets.some((s) => s.exercise.category !== "CARDIO");
-
-      if (hasStrength) {
-        // Use the simple estimator (duration + RPE based, since we don't
-        // know exact sets-per-exercise in this simplified flow)
-        const strengthDuration = hasCardio
-          ? data.durationMin * 0.7
-          : data.durationMin;
-        const strengthResult = calculateStrengthBurnSimple(
-          strengthDuration, // durationMin (positional arg 1)
-          data.userWeightKg, // weightKg (positional arg 2)
-          data.rpe ?? 7 // rpe (positional arg 3)
-        );
-        totalBurnLow += strengthResult.low;
-        totalBurnHigh += strengthResult.high;
-      }
-
-      if (hasCardio) {
-        // Find first cardio exercise to get MET value
-        const cardioSet = sets.find((s) => s.exercise.category === "CARDIO");
-        if (cardioSet) {
-          const cardioDuration = hasStrength
-            ? data.durationMin * 0.3
-            : data.durationMin;
-          const cardioResult = calculateCardioBurn(
-            cardioSet.exercise.metValue, // metValue (positional arg 1)
-            data.userWeightKg, // weightKg (positional arg 2)
-            cardioDuration // durationMin (positional arg 3)
-          );
-          totalBurnLow += cardioResult.low;
-          totalBurnHigh += cardioResult.high;
-        }
-      }
-
-      return {
-        durationMin: data.durationMin,
-        rpe: data.rpe,
-        caloriesBurnedLow: Math.round(totalBurnLow),
-        caloriesBurnedHigh: Math.round(totalBurnHigh),
-        notes: data.notes,
-      };
-    }
+  const session = await finishActiveSessionForUser(sessionId, userId, (sets) =>
+    computeSessionCompletion(sets, data)
   );
 
   if (!session) throw new NotFoundError("Session not found");
   return session;
+}
+
+/**
+ * Calorie burn for a completed session — shared by the manual finish and the
+ * AI import, so both produce identical numbers for identical sets.
+ *
+ * Extracted rather than duplicated: two copies of this would drift, and the
+ * dashboard would quietly report different burns for the same workout
+ * depending on how it was logged.
+ *
+ * Returns a RANGE (low–high) to stay honest about the uncertainty.
+ */
+function computeSessionCompletion(
+  sets: FinishSessionSetRow[],
+  data: {
+    durationMin: number;
+    rpe?: number;
+    userWeightKg: number;
+    notes?: string;
+  }
+) {
+  let totalBurnLow = 0;
+  let totalBurnHigh = 0;
+
+  const hasCardio = sets.some((s) => s.exercise.category === "CARDIO");
+  const hasStrength = sets.some((s) => s.exercise.category !== "CARDIO");
+
+  if (hasStrength) {
+    // Use the simple estimator (duration + RPE based, since we don't
+    // know exact sets-per-exercise in this simplified flow)
+    const strengthDuration = hasCardio
+      ? data.durationMin * 0.7
+      : data.durationMin;
+    const strengthResult = calculateStrengthBurnSimple(
+      strengthDuration, // durationMin (positional arg 1)
+      data.userWeightKg, // weightKg (positional arg 2)
+      data.rpe ?? 7 // rpe (positional arg 3)
+    );
+    totalBurnLow += strengthResult.low;
+    totalBurnHigh += strengthResult.high;
+  }
+
+  if (hasCardio) {
+    // Find first cardio exercise to get MET value
+    const cardioSet = sets.find((s) => s.exercise.category === "CARDIO");
+    if (cardioSet) {
+      const cardioDuration = hasStrength
+        ? data.durationMin * 0.3
+        : data.durationMin;
+      const cardioResult = calculateCardioBurn(
+        cardioSet.exercise.metValue, // metValue (positional arg 1)
+        data.userWeightKg, // weightKg (positional arg 2)
+        cardioDuration // durationMin (positional arg 3)
+      );
+      totalBurnLow += cardioResult.low;
+      totalBurnHigh += cardioResult.high;
+    }
+  }
+
+  return {
+    durationMin: data.durationMin,
+    rpe: data.rpe,
+    caloriesBurnedLow: Math.round(totalBurnLow),
+    caloriesBurnedHigh: Math.round(totalBurnHigh),
+    notes: data.notes,
+  };
+}
+
+/**
+ * Commit a reviewed AI workout draft.
+ *
+ * THE RULE THIS ENFORCES: AI is a new INPUT METHOD, not a new write path. The
+ * rows this produces are indistinguishable from rows tapped in by hand — same
+ * table, same constraints, same set numbering, same finish maths — so every
+ * existing feature (edit, delete, resume, templates, progress) keeps working
+ * without knowing the workout arrived as a paragraph.
+ *
+ * No AI runs here. The exercise ids were resolved by the parse step and
+ * confirmed by the user; this call carries ids and numbers only.
+ *
+ * Defaults to APPENDING to the day's in-progress session, so importing during
+ * a workout behaves like logging during it. `finish` is opt-in because
+ * finishing freezes the sets: a completed session refuses per-set edits, which
+ * is exactly the trap a mis-parsed import should not spring on the user.
+ */
+export async function importWorkout(
+  userId: string,
+  data: {
+    importId: string;
+    date: string;
+    exercises: Array<{
+      exerciseId: string;
+      sets: Array<{
+        weight?: number | null;
+        reps?: number | null;
+        rpe?: number | null;
+        isWarmup: boolean;
+        clientRequestId: string;
+      }>;
+    }>;
+    finish: boolean;
+    durationMin?: number;
+    notes?: string;
+    userWeightKg: number;
+  }
+) {
+  return importWorkoutSets(
+    userId,
+    {
+      importId: data.importId,
+      date: data.date,
+      exercises: data.exercises,
+      finish: data.finish,
+      durationMin: data.durationMin,
+      notes: data.notes,
+    },
+    (sets) =>
+      computeSessionCompletion(sets, {
+        // finish:true without a duration is rejected by aiImportSchema, so
+        // this fallback only guards a direct service call.
+        durationMin: data.durationMin ?? 45,
+        userWeightKg: data.userWeightKg,
+        notes: data.notes,
+      })
+  );
 }
 
 /**

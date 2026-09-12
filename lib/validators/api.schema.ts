@@ -225,6 +225,106 @@ export const parseMealRequestSchema = z.object({
   date: dateStrSchema,
 });
 
+// ─── POST /api/ai/parse-workout — natural language workout ───
+//
+// 1500 chars is a real session described generously ("push day, bench 4 sets
+// 40x12 50x10 55x8 55x8, incline db press 3x12 15, ..."), and it is also a
+// latency control: the prompt carries the 155-name exercise catalog alongside
+// this text, and the whole provider chain has ~8s before Vercel's ~10s wall.
+export const parseWorkoutSchema = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(3, "Please describe your workout (at least 3 characters)")
+    .max(1500),
+});
+
+// ─── POST /api/workout/ai-import — commit a reviewed draft ───
+//
+// This route takes NO free text and never calls an LLM: the client sends back
+// exercise ids the server itself resolved, plus numbers. Bounds are identical
+// to logSetSchema on purpose — importing must not be a way around the rules
+// that logging one set by hand enforces.
+//
+// clientRequestId is per SET (unique with session_id) so a retried import is a
+// no-op instead of a second copy of the workout.
+const aiImportSetSchema = z
+  .object({
+    weight: z.number().positive().max(1000).nullish(),
+    reps: z.number().int().positive().max(200).nullish(),
+    rpe: z.number().int().min(1).max(5).nullish(),
+    isWarmup: z.boolean().default(false),
+    clientRequestId: z.string().uuid(),
+  })
+  .refine((set) => set.weight != null || set.reps != null, {
+    message: "A set needs a weight or a rep count",
+  });
+
+/** Total rows one import may create. Mirrors MAX_TOTAL_SETS in the parser. */
+const MAX_IMPORT_SETS = 40;
+
+/**
+ * A date that is BOTH well-formed and real.
+ *
+ * dateStrSchema checks the shape only, so "2026-02-31" passes and JavaScript
+ * silently rolls it into March — a workout filed three days from where the
+ * user put it. That is tolerable for a read endpoint; it is not tolerable for
+ * a write that creates a session. (The shared schema is left alone: tightening
+ * it is a change every route would need re-testing for.)
+ */
+const realDateSchema = dateStrSchema.refine((value) => {
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+  );
+}, "That date does not exist");
+
+export const aiImportSchema = z
+  .object({
+    // Identifies the whole import. Lands on the session this import CREATES,
+    // so a retry finds its own first attempt instead of starting a second
+    // session (the failure mode that only exists when finish is true).
+    importId: z.string().uuid(),
+    date: realDateSchema,
+    durationMin: z.number().int().positive().max(1440).optional(),
+    /** Also complete the session (computes the calorie burn). Off by default. */
+    finish: z.boolean().default(false),
+    notes: z.string().trim().max(1000).optional(),
+    exercises: z
+      .array(
+        z.object({
+          exerciseId: z.string().min(1),
+          sets: z.array(aiImportSetSchema).min(1).max(12),
+        })
+      )
+      .min(1)
+      .max(15),
+  })
+  .refine(
+    (body) =>
+      body.exercises.reduce((total, e) => total + e.sets.length, 0) <=
+      MAX_IMPORT_SETS,
+    { message: `An import can contain at most ${MAX_IMPORT_SETS} sets` }
+  )
+  // Every set's idempotency key must be distinct WITHIN the request. Two sets
+  // sharing one id would collide on (session_id, client_request_id) at insert
+  // time, and the database is not where malformed input should first be
+  // noticed — the house rule at the top of this file.
+  .refine(
+    (body) => {
+      const ids = body.exercises.flatMap((e) =>
+        e.sets.map((s) => s.clientRequestId)
+      );
+      return new Set(ids).size === ids.length;
+    },
+    { message: "Every set needs its own clientRequestId" }
+  )
+  .refine((body) => !body.finish || body.durationMin != null, {
+    message: "Finishing a workout needs its duration",
+    path: ["durationMin"],
+  });
+
 // ─── DELETE /api/account — permanent account deletion ────────
 // Typed confirmation only. The exact string "DELETE" is required so a stray
 // click / autofill cannot wipe an account. Feature is inert until
