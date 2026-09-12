@@ -1,0 +1,12 @@
+# Line endings
+# ════════════
+# SQL here is executed verbatim by psql, and a carriage return inside a
+# dollar-quoted function body becomes PART OF THE STORED FUNCTION SOURCE.
+# With core.autocrlf=true on Windows, a checkout would otherwise install
+# functions whose md5(prosrc) differs from production — see
+# db/roles/EXTRACT_rls_auto_enable.md. Pin SQL to LF everywhere.
+*.sql text eol=lf
+
+# Shell scripts must not gain CRs either: a trailing \r makes the shebang and
+# every command fail on Linux/CI.
+*.sh text eol=lf

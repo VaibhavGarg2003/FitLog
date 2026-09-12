@@ -26,8 +26,11 @@ works, but is not needed for any of these reads. Then:
 ### 1. Function source
 
 ```psql
-\sf public.rls_auto_enable
+\sf public.rls_auto_enable()
 ```
+
+The empty `()` names the exact signature, so this cannot fail as ambiguous if an overload
+of the same name is ever added.
 
 Or equivalent catalog dump:
 
@@ -36,7 +39,8 @@ SELECT pg_get_functiondef(p.oid)
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
-  AND p.proname = 'rls_auto_enable';
+  AND p.proname = 'rls_auto_enable'
+  AND p.pronargs = 0;   -- the zero-argument signature the trigger calls
 ```
 
 Also capture ownership and security attributes:
@@ -50,7 +54,8 @@ SELECT p.proname,
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
-  AND p.proname = 'rls_auto_enable';
+  AND p.proname = 'rls_auto_enable'
+  AND p.pronargs = 0;   -- the zero-argument signature the trigger calls
 ```
 
 ### 2. Event trigger definition
@@ -94,8 +99,24 @@ Expected — the state recorded when `000` was written:
 99be20677b456ea8d3be47bdd44fb369|953|postgres|t|{search_path=pg_catalog}|ddl_command_end|public.rls_auto_enable()|{"CREATE TABLE","CREATE TABLE AS","SELECT INTO"}|O|postgres
 ```
 
-No output at all means the function does not exist. Empty fields after the 5th mean the
-trigger is missing.
+No output at all means the function does not exist.
+
+**Which field is which** — this decides what to do when something does not match:
+
+| # | Field | Part |
+|---|---|---|
+| 1 | body `md5` | function |
+| 2 | body length | function |
+| 3 | owner | function |
+| 4 | `SECURITY DEFINER` | function |
+| 5 | settings (`search_path`) | function |
+| 6 | event | trigger |
+| 7 | target function | trigger |
+| 8 | tags | trigger |
+| 9 | enabled — `O` on, `D` off | trigger |
+| 10 | owner | trigger |
+
+Empty fields 6–10 mean the trigger is missing.
 
 **A — has production changed?**
 
@@ -117,15 +138,44 @@ docker rm -f rls-check
 
 **Reading the results**
 
-| A matches | B matches | Meaning | Action |
+Fix the repo first, then production. Otherwise you compare production against an edited file.
+
+| Result | What differs | What it means | Action |
 |---|---|---|---|
-| ✅ | ✅ | Production, the recorded line and `000` all agree | Nothing |
-| ❌ | ✅ | Production changed | Re-extract with `pg_get_functiondef`, replace the body in `000` wholesale, update the expected line |
-| ✅ | ❌ | `000` was edited | Revert the edit — never hand-edit the body |
-| ❌ | ❌ | Both drifted | Treat production as the source of truth and re-extract |
+| A ✅ B ✅ | nothing | Production, the recorded line and `000` agree | Nothing |
+| B ❌ | anything | `000` was edited | Revert the edit — never hand-edit the body — and re-run B before looking at A |
+| A ❌ | **only fields 6–10** (trigger) | Production's safety net is **broken**: disabled, mis-wired or missing | **Repair it** — run `000` against production (below). **Never** update the expected line |
+| A ❌ | fields 1–5 (function), and the change was **intended and reviewed** | A legitimate update to the function | Re-extract with `pg_get_functiondef`, replace the body in `000` wholesale, update the expected line |
+| A ❌ | fields 1–5 (function), and **nobody intended it** | An accidental change, or tampering | **Restore it** — run `000` against production (below) |
+
+**Repairing production** needs the `postgres` credential, because event-trigger DDL is not
+available to `fitlog_migrate`:
+
+```bash
+psql "$SUPERUSER_DIRECT_URL" -f db/roles/000_rls_auto_enable.sql
+psql "$DIRECT_URL" -X -t -A -F '|' -f db/roles/check_rls_auto_enable.sql   # must now match
+```
+
+`000` puts back the committed function — body, owner, `SECURITY DEFINER`, `search_path` —
+and rebuilds a disabled or mis-wired trigger. If A still does not match afterwards, stop:
+confirm `000` ran without errors, then look at exactly which fields still differ.
+
+> **Why "production is the source of truth" is not the rule.** The expected line exists
+> precisely to catch production changing without anyone meaning it to. Adopting
+> production's state whenever it differs would turn every accidental or malicious change
+> — a switched-off safety net included — into the new baseline, and every later check
+> would pass.
 
 > ⚠️ **Don't diff text dumps on Windows.** `psql.exe` writes CRLF line endings when its
 > output is redirected to a file, so a dump taken on Windows differs on every line from
 > one taken on Linux even when the function is identical. This exact trap produced a
 > false "DIFFERS" while `000` was first being verified. Comparing catalog values and
 > server-side hashes avoids client line-ending translation entirely.
+>
+> The same translation can corrupt what you INSTALL, not just what you read. A carriage
+> return inside a dollar-quoted function body becomes part of the stored source, so on a
+> Windows checkout with `core.autocrlf=true`, running `000` would install a function
+> whose `md5(prosrc)` differs from production — and "repairing" production from such a
+> checkout would rewrite it with CRs. `.gitattributes` pins `*.sql` to `eol=lf` to stop
+> that. If field 1 or 2 differs straight after a clean install of `000`, check for CRs
+> first: `tr -cd '\r' < db/roles/000_rls_auto_enable.sql | wc -c` must print 0.
