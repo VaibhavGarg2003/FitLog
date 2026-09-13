@@ -16,9 +16,13 @@
  */
 
 import { Prisma } from "@prisma/client";
-import type { FitnessGoal } from "@prisma/client";
+import type { FitnessGoal, Profile } from "@prisma/client";
 import { prisma } from "@/lib/supabase/prisma";
 import { ValidationError } from "@/lib/utils/errors";
+import {
+  recordTargetRevision,
+  type TargetSnapshot,
+} from "@/lib/repositories/target-history.repository";
 
 /**
  * Create a User + Profile in a single database transaction.
@@ -49,6 +53,9 @@ export async function createUserWithProfile(
     // Seed the onboarding-day weight so the Progress page has a starting point.
     initialWeightKg?: number;
     weightDate?: Date;
+    // First entry in the user's target history. `today` is the user's
+    // calendar date ("YYYY-MM-DD") in their own timezone.
+    targetRevision?: { snapshot: TargetSnapshot; today: string };
   }
 ) {
   return prisma.$transaction(async (tx) => {
@@ -80,6 +87,19 @@ export async function createUserWithProfile(
         isOnboarded: true,
       },
     });
+
+    // Target history, inside this transaction so the profile and its history
+    // commit together or not at all. Re-onboarding compares against the
+    // existing history and only adds a row if the targets changed.
+    if (extras?.targetRevision) {
+      await recordTargetRevision(
+        tx,
+        userData.id,
+        extras.targetRevision.snapshot,
+        extras.targetRevision.today,
+        "ONBOARDING"
+      );
+    }
 
     // Seed the starting weight (idempotent per day) so start/current weight
     // on the Progress page are populated from day one.
@@ -142,16 +162,117 @@ export async function getProfileByUserId(userId: string) {
 }
 
 /**
- * Update an existing profile.
+ * Recalculate a profile's nutrition targets and record the change in target
+ * history — read, calculate and write all under ONE row lock.
+ *
+ * WHY THE CALCULATION RUNS INSIDE THE LOCK:
+ * ─────────────────────────────────────────
+ * Targets are derived from the profile's own inputs (weight, activity, goal…).
+ * Reading those inputs outside the transaction lets two overlapping saves
+ * compute from stale values:
+ *   A reads 80 kg / MODERATE and saves weight 75.
+ *   B reads 80 kg / MODERATE and saves activity ACTIVE — with targets
+ *     calculated for 80 kg, committed after A.
+ *   Final row: 75 kg / ACTIVE, but targets (and history) for 80 kg / ACTIVE.
+ * Locking the row FIRST (SELECT … FOR UPDATE) makes B wait for A to commit,
+ * then read A's result, so every save calculates from the latest inputs.
+ *
+ * The same lock also serializes the history write: the latest-revision read
+ * inside recordTargetRevision always sees the previous save's row, so a revert
+ * (2,600 → 1,800) can never be skipped as "unchanged".
+ *
+ * WHY A CALLBACK:
+ * ───────────────
+ * The repository owns the transaction; the calorie maths stays in the service.
+ * `compute` must be synchronous and pure — fetch anything async (like the
+ * active goal) before calling, so the row lock is held for milliseconds.
+ *
+ * This is the only update path for profile columns that carry targets —
+ * a bare update would let targets change without history.
+ *
+ * Returns null when the user has no profile.
  */
-export async function updateProfile(
+export async function updateProfileWithTargets(
   userId: string,
-  data: Prisma.ProfileUpdateInput
-) {
-  return prisma.profile.update({
+  compute: (current: Profile) => {
+    data: Prisma.ProfileUpdateInput;
+    revision: { snapshot: TargetSnapshot; today: string };
+  }
+): Promise<Profile | null> {
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM profiles WHERE user_id = ${userId} FOR UPDATE
+    `;
+    if (locked.length === 0) return null;
+
+    const current = await tx.profile.findUniqueOrThrow({ where: { userId } });
+    const { data, revision } = compute(current);
+
+    const profile = await tx.profile.update({ where: { userId }, data });
+    await recordTargetRevision(
+      tx,
+      userId,
+      revision.snapshot,
+      revision.today,
+      "PROFILE_UPDATE"
+    );
+    return profile;
+  });
+}
+
+/**
+ * Update preference-only columns. Never touches nutrition targets, so it
+ * never needs a target-history row.
+ *
+ * updateMany (not update) so a missing profile is a count of 0 the route can
+ * turn into a 404, instead of a thrown P2025.
+ */
+export async function updatePreferences(
+  userId: string,
+  data: { timezone?: string }
+): Promise<boolean> {
+  const res = await prisma.profile.updateMany({
     where: { userId },
     data,
   });
+  return res.count > 0;
+}
+
+/**
+ * Store a timezone ONLY if the account has none — atomically.
+ *
+ * The WHERE clause is the guarantee: two devices that both saw an empty zone,
+ * or a sync that lands after a Settings save already filled it, match zero
+ * rows instead of overwriting. Checking "is it null?" in the client or in a
+ * separate read first would leave that race open.
+ */
+export async function fillTimezoneIfUnset(
+  userId: string,
+  timezone: string
+): Promise<"filled" | "already-set" | "no-profile"> {
+  const res = await prisma.profile.updateMany({
+    where: { userId, timezone: null },
+    data: { timezone },
+  });
+  if (res.count > 0) return "filled";
+  const exists = await prisma.profile.count({ where: { userId } });
+  return exists > 0 ? "already-set" : "no-profile";
+}
+
+/**
+ * What the authenticated app shell needs on every full page load, in ONE
+ * lightweight query: the onboarding guard plus the stored timezone the
+ * client-side sync compares against.
+ */
+export async function getAppShellProfile(userId: string) {
+  const profile = await prisma.profile.findUnique({
+    where: { userId },
+    select: { isOnboarded: true, timezone: true },
+  });
+  return {
+    isOnboarded: profile?.isOnboarded ?? false,
+    timezone: profile?.timezone ?? null,
+  };
 }
 
 /**

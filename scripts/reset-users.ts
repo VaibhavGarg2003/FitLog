@@ -104,6 +104,7 @@ async function main() {
         weights: string;
         templates: string;
         insights: string;
+        target_revisions: string;
       };
     };
 
@@ -135,7 +136,8 @@ async function main() {
              (select count(*) from meal_entries       where user_id = $1) as meals,
              (select count(*) from weight_logs        where user_id = $1) as weights,
              (select count(*) from workout_templates  where user_id = $1) as templates,
-             (select count(*) from weekly_insights    where user_id = $1) as insights`,
+             (select count(*) from weekly_insights    where user_id = $1) as insights,
+             (select count(*) from target_revisions   where user_id = $1) as target_revisions`,
           [row.pub.id]
         );
         row.cascades = counts.rows[0];
@@ -159,7 +161,8 @@ async function main() {
         const c = f.cascades;
         line +=
           `\n      cascades: ${c.workouts} workouts, ${c.meals} meals, ` +
-          `${c.weights} weight logs, ${c.templates} templates, ${c.insights} insights`;
+          `${c.weights} weight logs, ${c.templates} templates, ${c.insights} insights, ` +
+          `${c.target_revisions} target revisions`;
       }
       console.log(line);
     }

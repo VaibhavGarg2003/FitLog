@@ -71,11 +71,29 @@ export async function GET(request: NextRequest) {
 /**
  * POST — generate (or regenerate) this week's insight via the LLM.
  * This is the expensive path, so the 2-per-week rate limit lives here.
+ *
+ * ORDER: cache check BEFORE the rate limit. The limiter consumes a token the
+ * moment it is asked, so checking it first spent quota on requests that never
+ * reach the LLM — a double tap, or a retry after the insight saved but the
+ * response was lost on the way back. A cache hit costs nothing and must not
+ * be metered. (generateWeeklyInsight still re-checks the cache; that covers a
+ * concurrent request that saved in between.)
  */
 export async function POST(request: NextRequest) {
   const userId = await getAuthUserId();
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const clientDate = getClientDate(request);
+
+  try {
+    const cached = await getCachedWeeklyInsight(userId, clientDate);
+    if (cached) {
+      return NextResponse.json({ generated: true, ...cached });
+    }
+  } catch (error: unknown) {
+    return handleRouteError(error, "POST /api/ai/weekly-insight");
   }
 
   const rateLimit = await checkInsightLimit(userId);
@@ -92,7 +110,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await generateWeeklyInsight(userId, getClientDate(request));
+    const result = await generateWeeklyInsight(userId, clientDate);
     return NextResponse.json({ generated: true, ...result });
   } catch (error: unknown) {
     return handleRouteError(error, "POST /api/ai/weekly-insight");

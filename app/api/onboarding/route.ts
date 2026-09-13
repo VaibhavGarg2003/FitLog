@@ -18,6 +18,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { onboardingSchema } from "@/lib/validators/onboarding.schema";
+import { timezoneSchema } from "@/lib/validators/api.schema";
 import { completeOnboarding } from "@/lib/services/profile.service";
 import { handleRouteError } from "@/lib/utils/errors";
 
@@ -52,6 +53,14 @@ export async function POST(request: Request) {
       );
     }
 
+    // 3b. The browser-detected timezone travels next to the form fields.
+    //     A missing or unrecognised zone is dropped, never a 400: failing
+    //     someone's signup over a timezone string would be absurd, and the
+    //     in-app sync fills it in on their first page load anyway.
+    const timezone = timezoneSchema.safeParse(
+      (body as { timezone?: unknown } | null)?.timezone
+    );
+
     // 4. Call the service layer (business logic)
     const result = await completeOnboarding(
       {
@@ -59,7 +68,8 @@ export async function POST(request: Request) {
         email: user.email ?? "",
         user_metadata: user.user_metadata as Record<string, string> | undefined,
       },
-      validation.data
+      validation.data,
+      { timezone: timezone.success ? timezone.data : undefined }
     );
 
     // 5. Return success
