@@ -19,6 +19,7 @@ import { Dumbbell } from "lucide-react";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { onboardingSchema } from "@/lib/validators/onboarding.schema";
 import { APP_NAME } from "@/lib/utils/constants";
+import { deviceTimeZone } from "@/lib/utils/local-date";
 import { cn } from "@/lib/utils/cn";
 import { Step1Identity } from "./step-1-identity";
 import { Step2Body } from "./step-2-body";
@@ -97,7 +98,9 @@ export function OnboardingShell({ userId }: { userId: string }) {
       const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(validation.data),
+        // timezone rides alongside the form, not inside it: it is detected, not
+        // asked, so it never enters the persisted wizard store.
+        body: JSON.stringify({ ...validation.data, timezone: deviceTimeZone() }),
       });
 
       if (!res.ok) {

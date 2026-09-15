@@ -17,7 +17,7 @@
  *   → profile.service.ts recalculateProfile() (Step 2)
  *     → calculateFullProfile() (Step 2 engine)
  *       → new protein, carbs, fat targets
- *     → profile.repository.ts updateProfile() (Step 2)
+ *     → profile.repository.ts updateProfileWithTargets() (+ target history)
  *   → Dashboard loads new targets on next visit
  */
 
@@ -30,6 +30,7 @@ import { SigninMethodsCard } from "./_components/signin-methods-card";
 import { SharedLinksCard } from "./_components/shared-links-card";
 import { DangerZoneCard } from "./_components/danger-zone-card";
 import { cn } from "@/lib/utils/cn";
+import { deviceTimeZone } from "@/lib/utils/local-date";
 
 const ACTIVITY_OPTIONS = [
   { value: "SEDENTARY", label: "Sedentary", desc: "Desk job, no exercise" },
@@ -101,6 +102,9 @@ export default function SettingsPage() {
           activityLevel: activity || undefined,
           goal: goal || undefined,
           dietaryType: dietary || undefined,
+          // Dates the target-history row on the user's calendar if the
+          // background timezone sync has not landed yet.
+          timezone: deviceTimeZone(),
         }),
       });
 

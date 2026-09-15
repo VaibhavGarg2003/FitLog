@@ -11,7 +11,8 @@
  * ────────────────────────────────
  * - Uses runWithFallback() (Step 4) to call LLMs
  * - Uses logFoodItem() / logCustomFood() (Step 3) to save parsed foods
- * - Uses nutrition/workout/progress repositories (Step 3) to read weekly data
+ * - Uses analytics.repository range queries to read weekly data (one query per
+ *   data type for the whole week)
  * - Uses profile repository (Step 2) to read targets/goals
  * - Uses calculateAdaptiveTDEE() (Step 2 engine) for adaptive TDEE
  *
@@ -27,9 +28,12 @@ import {
   WEEKLY_INSIGHT_SYSTEM_PROMPT,
 } from "@/lib/ai/prompts";
 import { logMealFoods } from "@/lib/services/nutrition.service";
-import { getDailySummary } from "@/lib/repositories/nutrition.repository";
-import { getSessionsByDate } from "@/lib/repositories/workout.repository";
-import { getWeightHistory } from "@/lib/repositories/progress.repository";
+import {
+  getDailyNutritionInRange,
+  getDailyWorkoutsInRange,
+  getWeightLogsInRange,
+} from "@/lib/repositories/analytics.repository";
+import { addDays, fillDays, listDays } from "@/lib/insights/fill-days";
 import { getProfileByUserId } from "@/lib/repositories/profile.repository";
 import {
   getInsightForWeek,
@@ -369,19 +373,20 @@ export async function generateWeeklyInsight(userId: string, localDate?: string) 
     };
   }
 
-  // 2. Fetch 7 days of data (UTC calendar math — weekStart is UTC-anchored)
-  const days: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart);
-    d.setUTCDate(weekStart.getUTCDate() + i);
-    days.push(formatDate(d));
-  }
+  // 2. Fetch the week's data — ONE query per data type for the whole range
+  //    (was one query per day per type: 14 round trips). Calendar math on
+  //    "YYYY-MM-DD" strings; weekStart is UTC-anchored.
+  const days = listDays(formatDate(weekStart), addDays(formatDate(weekStart), 6));
+  const weekFrom = days[0];
+  const weekTo = days[6];
 
-  // Parallel fetch — all 7 days of nutrition + workout data + profile + weight
-  const [nutritionDays, workoutDays, weightHistory, profile] = await Promise.all([
-    Promise.all(days.map((d) => getDailySummary(userId, d))),
-    Promise.all(days.map((d) => getSessionsByDate(userId, d))),
-    getWeightHistory(userId, 14), // last 2 weeks for trend
+  const [nutritionRows, workoutRows, weights, profile] = await Promise.all([
+    getDailyNutritionInRange(userId, weekFrom, weekTo),
+    getDailyWorkoutsInRange(userId, weekFrom, weekTo),
+    // Weight trend over the 14 calendar days ENDING on the week's last day.
+    // (Was the latest 14 ENTRIES regardless of date — for a weekly weigh-in
+    // that spanned 14 weeks, and ignored which week was being reported.)
+    getWeightLogsInRange(userId, addDays(weekTo, -13), weekTo),
     getProfileByUserId(userId),
   ]);
 
@@ -389,26 +394,37 @@ export async function generateWeeklyInsight(userId: string, localDate?: string) 
     throw new NotFoundError("Profile not found. Complete onboarding first.");
   }
 
+  // Days with no rows are absent from a GROUP BY — fill them with zeros so the
+  // breakdown below still has exactly one line per day.
+  const nutritionDays = fillDays(days, nutritionRows, {
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+  });
+  const workoutDays = fillDays(days, workoutRows, { sessions: 0 });
+
   // 3. Build context for the LLM
-  const daysLogged = nutritionDays.filter((d) => d.totalCalories > 0).length;
+  const daysLogged = nutritionDays.filter((d) => d.calories > 0).length;
   const avgCalories =
     daysLogged > 0
       ? Math.round(
-          nutritionDays.reduce((s, d) => s + d.totalCalories, 0) / daysLogged
+          nutritionDays.reduce((s, d) => s + d.calories, 0) / daysLogged
         )
       : 0;
   const avgProtein =
     daysLogged > 0
       ? Math.round(
-          nutritionDays.reduce((s, d) => s + d.totalProtein, 0) / daysLogged
+          nutritionDays.reduce((s, d) => s + d.protein, 0) / daysLogged
         )
       : 0;
 
-  const totalWorkouts = workoutDays.filter((d) => d.length > 0).length;
+  // Days trained, as before. What counts as a workout is now stricter: empty
+  // unfinished sessions no longer count (see getDailyWorkoutsInRange).
+  const totalWorkouts = workoutDays.filter((d) => d.sessions > 0).length;
 
-  const sortedWeights = [...weightHistory].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-  );
+  // Already oldest-first from the query.
+  const sortedWeights = weights;
   const weeklyWeightChange =
     sortedWeights.length >= 2
       ? Math.round(
@@ -429,7 +445,7 @@ export async function generateWeeklyInsight(userId: string, localDate?: string) 
 - Strictness: ${profile.strictness}
 - Dietary Type: ${profile.dietaryType || "Not specified"}
 
-## This Week's Data (${formatDate(weekStart)} to ${days[6]})
+## This Week's Data (${weekFrom} to ${weekTo})
 - Days with food logged: ${daysLogged} / 7
 - Average daily calories: ${avgCalories} kcal (target: ${profile.targetCalories})
 - Average daily protein: ${avgProtein}g (target: ${profile.targetProtein})
@@ -441,7 +457,7 @@ ${days
   .map((d, i) => {
     const n = nutritionDays[i];
     const w = workoutDays[i];
-    return `${d}: ${n.totalCalories} kcal / ${n.totalProtein}g protein / ${w.length} workout(s)`;
+    return `${d}: ${n.calories} kcal / ${n.protein}g protein / ${w.sessions} workout(s)`;
   })
   .join("\n")}
 
