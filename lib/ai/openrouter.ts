@@ -18,6 +18,27 @@ const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions";
 // gemini.ts for the full derivation from the Vercel 10s ceiling.
 const OPENROUTER_TIMEOUT_MS = 2000;
 
+/**
+ * The URL OpenRouter attributes our requests to (HTTP-Referer).
+ *
+ * This used to be hardcoded to https://fitlog.vercel.app — a domain that
+ * belongs to someone else's project, not ours. Reading it from Vercel instead
+ * means it is always our own domain and follows a domain switch with no code
+ * change:
+ *   1. VERCEL_PROJECT_PRODUCTION_URL — the project's production domain; set on
+ *      every Vercel deployment, previews included (host only, no protocol).
+ *   2. VERCEL_URL — this deployment's own *.vercel.app host, if the project has
+ *      "Enable access to System Environment Variables" turned off.
+ *   3. localhost — local development (neither variable exists).
+ */
+export function openRouterReferer(
+  env: Record<string, string | undefined> = process.env
+): string {
+  const host =
+    env.VERCEL_PROJECT_PRODUCTION_URL?.trim() || env.VERCEL_URL?.trim();
+  return host ? `https://${host}` : "http://localhost:3000";
+}
+
 interface OpenRouterRequest {
   systemPrompt: string;
   userMessage: string;
@@ -63,7 +84,7 @@ export async function callOpenRouter(
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
         // OpenRouter requires an HTTP-Referer header for free models
-        "HTTP-Referer": "https://fitlog.vercel.app",
+        "HTTP-Referer": openRouterReferer(),
         "X-Title": "FitLog",
       },
       body: JSON.stringify(body),
