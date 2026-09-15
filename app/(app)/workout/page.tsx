@@ -76,7 +76,14 @@ export default function WorkoutPage() {
 
   // What the last AI import did, so the page can say so instead of silently
   // refreshing. Cleared when the user acts again.
+  //
+  // It carries the DATE the sets were written to, and is shown on that date
+  // only. Without it the banner is page state that ignores the date strip:
+  // "Added 16 sets and finished the workout" from the 16th followed the user
+  // to the 15th and every other day, reading as if those days had the sets.
+  // Same rule as activeSessionDate / onSessionDate for the manual flow below.
   const [aiImportSummary, setAiImportSummary] = useState<{
+    date: string;
     setsAdded: number;
     finished: boolean;
     replayed: boolean;
@@ -947,8 +954,9 @@ export default function WorkoutPage() {
               date={selectedDate}
               userId={profile?.userId ?? null}
               onActiveChange={setAiFlowActive}
-              onImported={(result) => {
+              onImported={(result, importedDate) => {
                 setAiImportSummary({
+                  date: importedDate,
                   setsAdded: result.setsAdded,
                   finished: result.finished,
                   replayed: result.replayed,
@@ -956,7 +964,8 @@ export default function WorkoutPage() {
               }}
             />
 
-            {aiImportSummary && (
+            {/* Only on the date the import wrote to — see aiImportSummary. */}
+            {aiImportSummary && aiImportSummary.date === selectedDate && (
               <div className="flex flex-wrap items-center gap-3 bg-primary/10 border border-primary/30 rounded-xl px-4 py-3">
                 <span className="text-sm text-text-primary">
                   {aiImportSummary.replayed
