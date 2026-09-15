@@ -39,6 +39,8 @@ interface Profile {
   targetFat: number | null;
   strictness: string;
   unitSystem: string;
+  // IANA zone ("Asia/Kolkata"); null until the device has synced it.
+  timezone: string | null;
   isOnboarded: boolean;
   user: {
     id: string;

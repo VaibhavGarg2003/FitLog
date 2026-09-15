@@ -13,10 +13,12 @@
  * NOTE: /onboarding lives at app/onboarding (outside this group)
  * so it never triggers this layout — no infinite loop possible.
  *
- * WHY isUserOnboarded() AND NOT getProfileByUserId()?
- * ────────────────────────────────────────────────────
+ * WHY getAppShellProfile() AND NOT getProfileByUserId()?
+ * ───────────────────────────────────────────────────────
  * A profile row can exist with is_onboarded = false (partial write / crash).
- * is_onboarded = true is the correct signal that setup is complete.
+ * is_onboarded = true is the correct signal that setup is complete. The same
+ * two-column query also returns the stored timezone for <TimezoneSync />, so
+ * the guard and the sync share one lightweight read.
  *
  * WHY HERE AND NOT IN proxy.ts?
  * ─────────────────────────────
@@ -24,9 +26,10 @@
  */
 import { redirect } from "next/navigation";
 import { getAuthUserId } from "@/lib/supabase/server";
-import { isUserOnboarded } from "@/lib/repositories/profile.repository";
+import { getAppShellProfile } from "@/lib/repositories/profile.repository";
 import { TopNav } from "@/components/shared/top-nav";
 import { BottomNav } from "@/components/shared/bottom-nav";
+import { TimezoneSync } from "@/components/shared/timezone-sync";
 import { OutboxProvider } from "@/lib/offline/outbox-provider";
 import { OfflineBanner } from "@/components/pwa/offline-banner";
 
@@ -43,8 +46,8 @@ export default async function AppLayout({
   }
 
   // Redirect to onboarding if setup is not complete
-  const onboarded = await isUserOnboarded(userId);
-  if (!onboarded) {
+  const shell = await getAppShellProfile(userId);
+  if (!shell.isOnboarded) {
     redirect("/onboarding");
   }
 
@@ -65,6 +68,7 @@ export default async function AppLayout({
           {children}
         </main>
         <BottomNav />
+        <TimezoneSync savedTimeZone={shell.timezone} />
       </div>
     </OutboxProvider>
   );

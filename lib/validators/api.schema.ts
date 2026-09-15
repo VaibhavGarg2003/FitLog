@@ -16,6 +16,7 @@
  */
 
 import { z } from "zod";
+import { isValidTimeZone } from "@/lib/utils/local-date";
 
 /** "YYYY-MM-DD" — the only date format the API accepts */
 export const dateStrSchema = z
@@ -189,6 +190,14 @@ export const updateTemplateSchema = z.object({
     .max(20),
 });
 
+// ─── IANA timezone reported by the user's browser ───────────
+// Shape + "can Intl format in it" — see isValidTimeZone for why a formatter,
+// not a fixed list, is the test.
+export const timezoneSchema = z
+  .string()
+  .max(64)
+  .refine(isValidTimeZone, { message: "Unknown timezone" });
+
 // ─── PUT /api/profile — update profile + recalculate targets ─
 export const updateProfileSchema = z
   .object({
@@ -198,10 +207,39 @@ export const updateProfileSchema = z
       .optional(),
     goal: z.enum(["LOSE_FAT", "GAIN_MUSCLE", "MAINTAIN", "RECOMP"]).optional(),
     dietaryType: z.enum(["VEG", "NON_VEG", "VEGAN", "EGGETARIAN"]).optional(),
+    // The browser's zone, sent with the save. Only fills an account that has
+    // no stored zone yet (see recalculateProfile). An unrecognised value is
+    // dropped, never a 400 — a timezone string must not block a Settings save.
+    timezone: timezoneSchema.optional().catch(undefined),
   })
-  .refine((data) => Object.values(data).some((v) => v !== undefined), {
-    message: "At least one field must be provided",
-  });
+  .refine(
+    // timezone alone is not a profile change and must not trigger a recalc.
+    (data) =>
+      Object.entries(data).some(([key, v]) => key !== "timezone" && v !== undefined),
+    { message: "At least one field must be provided" }
+  );
+
+// ─── PATCH /api/profile/preferences — preference-only update ─
+// Deliberately NOT part of PUT /api/profile: that route reruns the calorie
+// engine and rewrites nutrition targets, which a preference change must never
+// do. Every field is optional so later preferences can join without a new
+// route, but at least one must be present.
+export const updatePreferencesSchema = z
+  .object({
+    timezone: timezoneSchema.optional(),
+    // true → write the timezone ONLY if the account has none yet. The
+    // background sync uses this so a stale request from a second device can
+    // never replace a zone that is already stored. Omitted → a deliberate set.
+    onlyIfUnset: z.boolean().optional(),
+  })
+  .refine(
+    // onlyIfUnset is a write mode, not a preference.
+    (data) =>
+      Object.entries(data).some(
+        ([key, v]) => key !== "onlyIfUnset" && v !== undefined
+      ),
+    { message: "At least one preference must be provided" }
+  );
 
 // ─── POST /api/share — create a share link for a template ────
 // `kind` is fixed server-side (WORKOUT_TEMPLATE), never taken from the body.

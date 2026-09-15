@@ -97,13 +97,15 @@ async function main() {
            (select count(*) from meal_entries       where user_id = $1) as meals,
            (select count(*) from weight_logs        where user_id = $1) as weights,
            (select count(*) from workout_templates  where user_id = $1) as templates,
-           (select count(*) from weekly_insights    where user_id = $1) as insights`,
+           (select count(*) from weekly_insights    where user_id = $1) as insights,
+           (select count(*) from target_revisions   where user_id = $1) as target_revisions`,
         [uid]
       );
       const c = counts.rows[0];
       console.log(
         `Cascades: ${c.workouts} workouts, ${c.meals} meals, ${c.weights} weight logs, ` +
-          `${c.templates} templates, ${c.insights} insights (+ profile & child rows).`
+          `${c.templates} templates, ${c.insights} insights, ${c.target_revisions} target revisions ` +
+          `(+ profile & child rows).`
       );
     }
 

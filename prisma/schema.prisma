@@ -73,6 +73,7 @@ model User {
   workoutTemplates WorkoutTemplate[]
   weeklyInsights  WeeklyInsight[]
   customFoods     CustomFood[]
+  targetRevisions TargetRevision[]
 
   @@map("users")
   // @@map("users") — the table in PostgreSQL is called "users" (lowercase),
@@ -115,6 +116,18 @@ model Profile {
 
   workoutSplit    WorkoutSplit? @map("workout_split")
   unitSystem      UnitSystem   @default(METRIC) @map("unit_system")
+
+  timezone        String?
+  // IANA name ("Asia/Kolkata") — the calendar the user's history is dated in.
+  // Detected from the browser at onboarding; for older accounts, filled in on
+  // the first app open or Settings save (timezone-sync.tsx, recalculateProfile).
+  // Deliberately NOT auto-updated when a device reports a different zone: a
+  // flipping zone would move day boundaries back and forth. Changing it is a
+  // deliberate act via PATCH /api/profile/preferences.
+  //
+  // WHY: the server runs in UTC. Without this it cannot know the user's
+  // calendar date on its own — every "today" has to be sent by the client.
+  // Null until filled; callers fall back to the client-sent / server date.
 
   isOnboarded     Boolean  @default(false) @map("is_onboarded")
   // We track if onboarding is complete. If false, redirect to /onboarding.
@@ -215,7 +228,11 @@ model ExerciseSet {
   setNumber   Int      @map("set_number")
   // Which set this is (1st, 2nd, 3rd...). For ordering within an exercise.
 
-  weight      Float?   // kg or lbs (based on user's unitSystem)
+  weight      Float?
+  // Numeric load exactly as the user confirmed it. The UI labels and
+  // interprets it as kg, and nothing converts units — so it is not
+  // guaranteed kg: AI-parsed "lb" input is currently stored without
+  // conversion (the importer warns first; see ai-workout.service.ts).
   reps        Int?
   rpe         Int?     // Per-set RPE (optional, Live Mode only)
 
@@ -544,6 +561,51 @@ model WorkoutTemplate {
 }
 
 // ─────────────────────────────────────────────────────────────
+// TARGET HISTORY
+// ─────────────────────────────────────────────────────────────
+// Profile holds only the CURRENT targets and overwrites them on every
+// recalculation. This append-mostly table remembers what they were on any
+// past day, so "how did March go?" is measured against March's target, not
+// today's. One row per change; the row in force on date D is the latest row
+// with effectiveFrom <= D. No row on or before D means the target that day is
+// UNKNOWN — never guess it from the current profile.
+//
+// Written only inside the same transaction as the profile write that changed
+// the targets (profile.repository.ts), so the two can never disagree.
+
+model TargetRevision {
+  id             String       @id @default(uuid())
+  userId         String       @map("user_id")
+
+  effectiveFrom  DateTime     @map("effective_from") @db.Date
+  // The user's CALENDAR date (their timezone) the targets took effect.
+  // Several changes on one day collapse into one row: the day's last value.
+
+  tdee           Int?
+  targetCalories Int          @map("target_calories")
+  targetProtein  Int          @map("target_protein")   // grams
+  targetCarbs    Int          @map("target_carbs")      // grams
+  targetFat      Int          @map("target_fat")        // grams
+  goal           FitnessGoal?
+  weightKg       Float?       @map("weight_kg")
+  // Inputs worth keeping beside the outputs: which goal and body weight the
+  // engine was fed when it produced these targets.
+
+  source         TargetSource
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, effectiveFrom])
+  // Also THE lookup index: "latest row on or before D for this user" is a
+  // backward scan of (user_id, effective_from), and user_id leads, so it
+  // covers the FK for cascade deletes too.
+
+  @@map("target_revisions")
+}
+
+// ─────────────────────────────────────────────────────────────
 // WEEKLY AI INSIGHTS
 // ─────────────────────────────────────────────────────────────
 // Stores the AI-generated weekly coaching summaries.
@@ -673,6 +735,12 @@ enum GoalStatus {
   ACTIVE
   COMPLETED
   ABANDONED
+}
+
+enum TargetSource {
+  ONBOARDING      // first targets, written by completeOnboarding()
+  PROFILE_UPDATE  // Settings change that altered targets (recalculateProfile)
+  BACKFILL        // one-off row per existing profile when the table shipped
 }
 
 enum UnitSystem {

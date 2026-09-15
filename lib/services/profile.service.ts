@@ -26,11 +26,12 @@ import { calculateFullProfile } from "@/lib/engine";
 import {
   createUserWithProfile,
   getProfileByUserId,
-  updateProfile,
+  updateProfileWithTargets,
 } from "@/lib/repositories/profile.repository";
 import { getActiveGoal } from "@/lib/repositories/progress.repository";
 import { type OnboardingFormData } from "@/lib/validators/onboarding.schema";
 import { NotFoundError } from "@/lib/utils/errors";
+import { isValidTimeZone, todayForUser } from "@/lib/utils/local-date";
 
 // Onboarding Step 4 slider is in months; the engine and the Goal row work in
 // days. 30 is the same approximation the Step 4 preview uses — the two must
@@ -54,7 +55,10 @@ export async function completeOnboarding(
       avatar_url?: string;
     };
   },
-  formData: OnboardingFormData
+  formData: OnboardingFormData,
+  // Detected by the browser, validated by the route. Absent when the browser
+  // could not report one — the in-app sync fills it in later.
+  options: { timezone?: string } = {}
 ) {
   // 1. Calculate age from date of birth
   const today = new Date();
@@ -132,6 +136,9 @@ export async function completeOnboarding(
       dietaryType: formData.dietaryType,
       strictness: formData.strictness,
       unitSystem: formData.unitSystem,
+      // undefined (not null) when unknown, so re-onboarding never wipes a
+      // zone that was already synced.
+      timezone: options.timezone,
       tdee: calculated.tdee,
       targetCalories: calculated.targetCalories,
       targetProtein: calculated.targetProtein,
@@ -141,6 +148,19 @@ export async function completeOnboarding(
     {
       goal: goalExtra,
       initialWeightKg: formData.weightKg,
+      // The first row of the user's target history, dated on THEIR calendar.
+      targetRevision: {
+        snapshot: {
+          tdee: calculated.tdee,
+          targetCalories: calculated.targetCalories,
+          targetProtein: calculated.targetProtein,
+          targetCarbs: calculated.targetCarbs,
+          targetFat: calculated.targetFat,
+          goal: formData.goal,
+          weightKg: formData.weightKg,
+        },
+        today: todayForUser(options.timezone),
+      },
     }
   );
 
@@ -171,6 +191,16 @@ export async function getUserProfile(userId: string) {
  * stays in timeline mode using the REMAINING days to their target date.
  * Without this, changing weight in Settings would silently drop the user back
  * onto the static preset (-500) and overwrite the plan onboarding built.
+ *
+ * CONCURRENCY: the profile is read, merged and recalculated INSIDE the
+ * repository's row lock (see updateProfileWithTargets), so two overlapping
+ * saves can never compute targets from stale inputs.
+ *
+ * TIMEZONE: `options.deviceTimeZone` is the zone the browser reports with the
+ * save. It is used only when the account has no stored zone yet — then it
+ * dates the history row correctly AND is saved in the same transaction. This
+ * closes the gap where a save lands before the background timezone sync. A
+ * stored zone always wins; changing it is a deliberate act, not a side effect.
  */
 export async function recalculateProfile(
   userId: string,
@@ -182,23 +212,13 @@ export async function recalculateProfile(
     activityLevel?: "SEDENTARY" | "LIGHT" | "MODERATE" | "ACTIVE" | "VERY_ACTIVE";
     goal?: "LOSE_FAT" | "GAIN_MUSCLE" | "MAINTAIN" | "RECOMP";
     dietaryType?: "VEG" | "NON_VEG" | "VEGAN" | "EGGETARIAN";
-  }
+  },
+  options: { deviceTimeZone?: string } = {}
 ) {
-  // Get current profile to merge with updates
-  const current = await getProfileByUserId(userId);
-  if (!current) throw new NotFoundError("Profile not found");
-
-  const sex = updates.sex ?? current.sex ?? "MALE";
-  const weightKg = updates.weightKg ?? current.weightKg ?? 70;
-  const heightCm = updates.heightCm ?? current.heightCm ?? 170;
-  const age = updates.age ?? current.age ?? 25;
-  const activityLevel = updates.activityLevel ?? current.activityLevel ?? "MODERATE";
-  const goal = updates.goal ?? current.goal ?? "MAINTAIN";
-  const dietaryType = updates.dietaryType ?? current.dietaryType ?? "NON_VEG";
-
   // Stay in timeline mode when an active goal exists, using the days LEFT
   // rather than the original timeline — the deadline hasn't moved just
-  // because the user updated their weight.
+  // because the user updated their weight. Fetched BEFORE the transaction so
+  // the row lock is held only for the synchronous calculation below.
   const activeGoal = await getActiveGoal(userId);
   const remainingDays = activeGoal?.targetDate
     ? Math.ceil((activeGoal.targetDate.getTime() - Date.now()) / MS_PER_DAY)
@@ -209,24 +229,63 @@ export async function recalculateProfile(
   const useGoalTimeline =
     activeGoal != null && remainingDays != null && remainingDays > 0;
 
-  const calculated = calculateFullProfile({
-    sex,
-    weightKg,
-    heightCm,
-    age,
-    activityLevel,
-    goal,
-    dietaryType, // Step 3: passed to tiered protein system
-    targetWeightKg: useGoalTimeline ? activeGoal.targetValue : undefined,
-    timelineDays: useGoalTimeline ? remainingDays : undefined,
+  const updated = await updateProfileWithTargets(userId, (current) => {
+    // `current` is the row as locked — the latest committed inputs.
+    const sex = updates.sex ?? current.sex ?? "MALE";
+    const weightKg = updates.weightKg ?? current.weightKg ?? 70;
+    const heightCm = updates.heightCm ?? current.heightCm ?? 170;
+    const age = updates.age ?? current.age ?? 25;
+    const activityLevel = updates.activityLevel ?? current.activityLevel ?? "MODERATE";
+    const goal = updates.goal ?? current.goal ?? "MAINTAIN";
+    const dietaryType = updates.dietaryType ?? current.dietaryType ?? "NON_VEG";
+
+    const calculated = calculateFullProfile({
+      sex,
+      weightKg,
+      heightCm,
+      age,
+      activityLevel,
+      goal,
+      dietaryType, // Step 3: passed to tiered protein system
+      targetWeightKg: useGoalTimeline ? activeGoal.targetValue : undefined,
+      timelineDays: useGoalTimeline ? remainingDays : undefined,
+    });
+
+    // Stored zone first; the device's zone only fills a missing one.
+    const establishZone =
+      current.timezone == null && isValidTimeZone(options.deviceTimeZone)
+        ? options.deviceTimeZone
+        : undefined;
+
+    return {
+      data: {
+        ...updates,
+        ...(establishZone ? { timezone: establishZone } : {}),
+        tdee: calculated.tdee,
+        targetCalories: calculated.targetCalories,
+        targetProtein: calculated.targetProtein,
+        targetCarbs: calculated.targetCarbs,
+        targetFat: calculated.targetFat,
+      },
+      // The repository writes a history row only when the targets actually
+      // changed, so a save that leaves them untouched adds nothing.
+      revision: {
+        snapshot: {
+          tdee: calculated.tdee,
+          targetCalories: calculated.targetCalories,
+          targetProtein: calculated.targetProtein,
+          targetCarbs: calculated.targetCarbs,
+          targetFat: calculated.targetFat,
+          goal,
+          weightKg,
+        },
+        // The day the change takes effect, on the user's calendar. Server
+        // date only when neither a stored nor a device zone is available.
+        today: todayForUser(current.timezone ?? establishZone),
+      },
+    };
   });
 
-  return updateProfile(userId, {
-    ...updates,
-    tdee: calculated.tdee,
-    targetCalories: calculated.targetCalories,
-    targetProtein: calculated.targetProtein,
-    targetCarbs: calculated.targetCarbs,
-    targetFat: calculated.targetFat,
-  });
+  if (!updated) throw new NotFoundError("Profile not found");
+  return updated;
 }

@@ -52,7 +52,8 @@ export async function GET() {
  *   → calculateFullProfile() (tdee.ts — Step 2)
  *     → tiered protein multiplier (Step 2 fix)
  *     → dietaryType adjustment (Step 3)
- *   → updateProfile() (profile.repository.ts — Step 2)
+ *   → updateProfileWithTargets() (profile.repository.ts) — profile + target
+ *     history in one transaction
  */
 export async function PUT(request: NextRequest) {
   try {
@@ -82,7 +83,10 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const updated = await recalculateProfile(userId, parsed.data);
+    const { timezone, ...updates } = parsed.data;
+    const updated = await recalculateProfile(userId, updates, {
+      deviceTimeZone: timezone,
+    });
 
     return NextResponse.json(updated);
   } catch (error) {

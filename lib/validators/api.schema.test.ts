@@ -18,6 +18,9 @@ import {
   parseMealRequestSchema,
   createShareSchema,
   deleteAccountSchema,
+  timezoneSchema,
+  updatePreferencesSchema,
+  updateProfileSchema,
 } from "@/lib/validators/api.schema";
 
 describe("logCustomFoodSchema", () => {
@@ -273,5 +276,58 @@ describe("createShareSchema", () => {
     expect(createShareSchema.safeParse({ ...valid, expiresInDays: 0 }).success).toBe(false);
     expect(createShareSchema.safeParse({ ...valid, expiresInDays: 366 }).success).toBe(false);
     expect(createShareSchema.safeParse({ ...valid, expiresInDays: 1.5 }).success).toBe(false);
+  });
+});
+
+describe("timezoneSchema / updatePreferencesSchema", () => {
+  it("accepts a real zone, including browser-reported aliases", () => {
+    expect(timezoneSchema.safeParse("Asia/Kolkata").success).toBe(true);
+    expect(timezoneSchema.safeParse("Asia/Calcutta").success).toBe(true);
+  });
+
+  it("rejects offsets, unknown zones and non-strings", () => {
+    expect(timezoneSchema.safeParse("+05:30").success).toBe(false);
+    expect(timezoneSchema.safeParse("Nowhere/Land").success).toBe(false);
+    expect(timezoneSchema.safeParse(330).success).toBe(false);
+  });
+
+  it("requires at least one preference", () => {
+    expect(updatePreferencesSchema.safeParse({}).success).toBe(false);
+    expect(updatePreferencesSchema.safeParse({ timezone: "Europe/London" }).success).toBe(true);
+  });
+
+  it("treats onlyIfUnset as a write mode, not a preference", () => {
+    expect(updatePreferencesSchema.safeParse({ onlyIfUnset: true }).success).toBe(false);
+    expect(
+      updatePreferencesSchema.safeParse({ timezone: "Europe/London", onlyIfUnset: true }).success
+    ).toBe(true);
+  });
+
+  it("never lets target fields ride along on the preferences route", () => {
+    // Unknown keys are stripped, so a crafted body cannot change targets.
+    const parsed = updatePreferencesSchema.safeParse({
+      timezone: "Europe/London",
+      targetCalories: 9999,
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual({ timezone: "Europe/London" });
+  });
+});
+
+describe("updateProfileSchema — timezone rides along", () => {
+  it("passes a valid device zone through", () => {
+    const parsed = updateProfileSchema.safeParse({ weightKg: 80, timezone: "Asia/Kolkata" });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.timezone).toBe("Asia/Kolkata");
+  });
+
+  it("drops an unrecognised zone instead of failing the save", () => {
+    const parsed = updateProfileSchema.safeParse({ weightKg: 80, timezone: "+05:30" });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.timezone).toBeUndefined();
+  });
+
+  it("does not treat a timezone alone as a profile change", () => {
+    expect(updateProfileSchema.safeParse({ timezone: "Asia/Kolkata" }).success).toBe(false);
   });
 });
