@@ -30,6 +30,7 @@
  */
 import type { Metadata, Viewport } from "next";
 import { Inter, Outfit } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { PwaProvider } from "@/components/pwa/pwa-provider";
 import { INSTALL_PROMPT_CAPTURE_SCRIPT } from "@/components/pwa/install-prompt-script";
@@ -107,6 +108,7 @@ export default function RootLayout({
               can use useQuery() / useMutation() hooks */}
           <PwaProvider>{children}</PwaProvider>
         </QueryProvider>
+        <Analytics />
       </body>
     </html>
   );
