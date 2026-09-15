@@ -25,6 +25,7 @@ import {
   deleteSetSchema,
 } from "@/lib/validators/api.schema";
 import { handleRouteError } from "@/lib/utils/errors";
+import { isExpectedUserMismatch } from "@/lib/utils/expected-user";
 
 export async function PATCH(
   request: NextRequest,
@@ -103,6 +104,11 @@ export async function POST(
     const userId = await getAuthUserId();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // Queued offline sets name the user who logged them; never write them into
+    // a different account signed in from another tab (see expected-user.ts).
+    if (isExpectedUserMismatch(request.headers, userId)) {
+      return NextResponse.json({ error: "Signed in as a different user" }, { status: 401 });
     }
 
     const { id: sessionId } = await params;

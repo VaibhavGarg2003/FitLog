@@ -81,8 +81,11 @@ export async function proxy(request: NextRequest) {
 }
 
 // WHICH ROUTES TRIGGER THIS PROXY:
+// PWA files (service worker, offline page, manifest, icons) are public and
+// static — skipping them avoids a session-refresh round trip on every service
+// worker update check and manifest fetch.
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js|offline\\.html|manifest\\.webmanifest|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

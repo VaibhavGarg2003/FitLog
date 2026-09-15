@@ -22,12 +22,11 @@
  * Burns are NEVER added to the daily calorie budget.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useUIStore } from "@/stores/ui-store";
 import {
   useWorkoutsForDate,
   useStartSession,
-  useLogSet,
   useFinishSession,
   useCancelSession,
   useDeleteSession,
@@ -50,8 +49,11 @@ import {
 import { SaveTemplateModal } from "./_components/save-template-modal";
 import { UnfinishedSessionCard } from "./_components/unfinished-session-card";
 import { AIWorkoutInput } from "./_components/ai-workout-input";
+import { UnsyncedSetsCard } from "./_components/unsynced-sets-card";
 import { useProfile } from "@/lib/hooks/use-profile";
 import { localDateStr } from "@/lib/utils/local-date";
+import { useOutbox } from "@/lib/offline/outbox-provider";
+import { mergeSessionSets, nextSetNumber } from "@/lib/offline/merge-sets";
 
 export default function WorkoutPage() {
   const selectedDate = useUIStore((s) => s.selectedDate);
@@ -59,7 +61,11 @@ export default function WorkoutPage() {
   const { data: sessions, isLoading } = useWorkoutsForDate(selectedDate);
   const startSession = useStartSession(selectedDate);
   const startFromTemplate = useStartFromTemplate(selectedDate);
-  const logSet = useLogSet(selectedDate);
+  // Sets are logged into the on-device outbox, not straight to the server, so
+  // logging works with no signal (see lib/offline/outbox-provider.tsx).
+  const outbox = useOutbox();
+  const { reconcile } = outbox;
+  const [savingSet, setSavingSet] = useState(false);
   const finishSession = useFinishSession(selectedDate);
   const cancelSession = useCancelSession(selectedDate);
   const deleteSession = useDeleteSession(selectedDate);
@@ -170,30 +176,71 @@ export default function WorkoutPage() {
     if (!activeSessionId || !activeExercise) {
       throw new Error("No active session");
     }
-    // Next number = one past the highest this exercise already has. The server
-    // re-derives max+1 under the lock (client value is advisory) — but taking
-    // the max still keeps the UI label honest between refetches.
-    const nextSetNumber =
-      activeExerciseSets.reduce((max, s) => Math.max(max, s.setNumber), 0) + 1;
+    // Saved to the phone first; the outbox sends it when there's signal.
+    // Resolves as soon as the set is durably stored, so the form resets
+    // instantly even in a basement. Rethrows if the phone couldn't store it,
+    // so SetLogger keeps the form (and its clientRequestId) and shows an error.
+    setSavingSet(true);
+    try {
+      await outbox.enqueueSet({
+        sessionId: activeSessionId,
+        date: activeSessionDate ?? selectedDate,
+        exercise: {
+          id: activeExercise.id,
+          name: activeExercise.name,
+          muscleGroup: activeExercise.muscleGroup,
+          category: activeExercise.category,
+          metValue: activeExercise.metValue,
+          isCompound: activeExercise.isCompound,
+        },
+        payload: {
+          exerciseId: activeExercise.id,
+          // Advisory: the server re-derives max+1 under its lock.
+          setNumber: nextSetNumber(activeSets, activeExercise.id),
+          weight: data.weight,
+          reps: data.reps,
+          rpe: data.rpe,
+          isWarmup: data.isWarmup,
+          clientRequestId: data.clientRequestId,
+        },
+      });
+    } finally {
+      setSavingSet(false);
+    }
+  }
 
-    // Rethrow on failure so SetLogger keeps the form and shows an error.
-    await logSet.mutateAsync({
-      sessionId: activeSessionId,
-      exerciseId: activeExercise.id,
-      setNumber: nextSetNumber,
-      weight: data.weight,
-      reps: data.reps,
-      rpe: data.rpe,
-      isWarmup: data.isWarmup,
-      clientRequestId: data.clientRequestId,
-    });
+  /**
+   * Finishing computes calorie burn from the sets the SERVER has, so every set
+   * logged on this phone must arrive first — and a set the server refused must
+   * be resolved (saved elsewhere or discarded), never silently left out.
+   */
+  async function unsyncedFinishBlocker(): Promise<string | null> {
+    if (!activeSessionId) return null;
+    if (failedInSession) {
+      return "Some sets couldn't be saved. Resolve them above before finishing.";
+    }
+    const waiting =
+      "Waiting for your latest sets to sync. You can finish once they're saved — reconnect if you're offline.";
+    if (savingSet || unsyncedInSession > 0) return waiting;
+    // `outbox.records` mirrors IndexedDB a tick behind a just-saved set, so
+    // ask the store itself before letting the server compute the session.
+    try {
+      return (await outbox.hasUnsynced(activeSessionId)) ? waiting : null;
+    } catch {
+      return "Couldn't check this phone for unsynced sets. Try again.";
+    }
   }
 
   // Called when user taps "Finish Workout" button
-  function handleAttemptFinish() {
+  async function handleAttemptFinish() {
     // Fix 6: Validate at least one set was logged before showing duration screen
     if (totalSetsInSession === 0) {
       setFinishError("Please log at least one exercise set before finishing.");
+      return;
+    }
+    const blocker = await unsyncedFinishBlocker();
+    if (blocker) {
+      setFinishError(blocker);
       return;
     }
     setFinishError(null);
@@ -240,6 +287,10 @@ export default function WorkoutPage() {
     if (!sessionId) return;
     try {
       await cancelSession.mutateAsync({ sessionId });
+      // Only after the server confirmed: its queued sets can never be saved
+      // now. If the cancel failed, they stay queued and sync into the session,
+      // which then reappears as unfinished — nothing is lost.
+      await outbox.discardSession(sessionId).catch(() => {});
     } catch {
       // Surfaced by the banner below via cancelSession.isError — never
       // swallowed. The hook invalidates on settled, so a failed discard
@@ -257,6 +308,13 @@ export default function WorkoutPage() {
 
   async function handleFinish() {
     if (!activeSessionId) return;
+    // Re-checked here: a set can be logged after the finish screen opened.
+    const blocker = await unsyncedFinishBlocker();
+    if (blocker) {
+      setFinishError(blocker);
+      setShowFinish(false);
+      return;
+    }
     const durationMin = parseInt(duration) || 45;
 
     // Count unique exercises in this session (for the completion screen)
@@ -308,17 +366,41 @@ export default function WorkoutPage() {
   const onSessionDate = activeSessionDate === selectedDate;
 
   // ── Logged-so-far (active session) ────────────────────────────────
-  // The server returns the active session's sets (refetched after every
-  // mutation), so the card is always current. Rendering + per-set editing
-  // live in <LoggedExercises>; this page just derives the inputs.
+  // Server sets (refetched after every mutation) merged with sets still
+  // queued on this phone, so the card shows a set the moment it's logged.
+  // Rendering + per-set editing live in <LoggedExercises>; this page just
+  // derives the inputs.
   const activeSessionData = sessions?.find(
     (s: { id: string }) => s.id === activeSessionId
   );
-  const activeSets = (activeSessionData?.exerciseSets ?? []) as ActiveSet[];
+  const serverSets = (activeSessionData?.exerciseSets ?? []) as ActiveSet[];
+  const activeSets = mergeSessionSets(
+    serverSets,
+    outbox.records.filter((r) => r.sessionId === activeSessionId)
+  );
+  const unsyncedInSession = activeSets.filter((s) => s.kind === "local").length;
+  const failedInSession = activeSets.some(
+    (s) => s.kind === "local" && s.syncState === "failed"
+  );
 
-  // Total sets = server truth, so editing/deleting sets keeps the finish
-  // validation and the completion card honest.
+  // Total sets = server + queued, so the counts, the finish validation and
+  // the completion card match what the user logged.
   const totalSetsInSession = activeSets.length;
+
+  // A queued set whose clientRequestId already appears in server data was
+  // saved (e.g. its response was lost) — drop it from the queue.
+  const outboxRecordCount = outbox.records.length;
+  useEffect(() => {
+    if (!sessions || outboxRecordCount === 0) return;
+    const ids = (
+      sessions as Array<{ exerciseSets?: Array<{ clientRequestId?: string | null }> }>
+    ).flatMap((s) =>
+      (s.exerciseSets ?? [])
+        .map((es) => es.clientRequestId)
+        .filter((id): id is string => !!id)
+    );
+    reconcile(ids);
+  }, [sessions, outboxRecordCount, reconcile]);
 
   // The active exercise's own sets, ascending — this is what drives "Set N"
   // and the editable list inside the logger.
@@ -346,13 +428,18 @@ export default function WorkoutPage() {
           onAddSets={handleEditExercise}
         />
         {/* Save any subset of what's logged as a template — right now, mid
-            workout (e.g. save biceps before starting triceps). */}
+            workout (e.g. save biceps before starting triceps). The template
+            is built from server sets, so wait until queued sets have synced
+            rather than saving a template that silently misses some. */}
         <button
           type="button"
           onClick={() => setSavingSessionId(activeSessionId)}
-          className="w-full py-2 text-sm text-text-secondary hover:text-primary font-medium transition-colors"
+          disabled={unsyncedInSession > 0}
+          className="w-full py-2 text-sm text-text-secondary hover:text-primary font-medium transition-colors disabled:opacity-50 disabled:hover:text-text-secondary"
         >
-          💾 Save as template
+          {unsyncedInSession > 0
+            ? "💾 Save as template (after sets sync)"
+            : "💾 Save as template"}
         </button>
       </div>
     ) : null;
@@ -490,6 +577,23 @@ export default function WorkoutPage() {
   }
 
   /**
+   * Sets whose workout was gone were saved into a new workout (see
+   * UnsyncedSetsCard). Open it, so the user can keep logging or finish it.
+   */
+  function handleRecovered(sessionId: string, date: string) {
+    setSelectedDate(date);
+    setActiveSessionId(sessionId);
+    setActiveSessionDate(date);
+    setWorkoutCompleted(null);
+    setActiveExercise(null);
+    setShowFinish(false);
+    setFinishError(null);
+    setConfirmingCancel(false);
+    setPlannedExercises(null);
+    setDoneExerciseIds(new Set());
+  }
+
+  /**
    * Permanently delete an unfinished workout the user will never finish.
    *
    * Hard delete, not the soft-cancel used for an ACTIVE session: this is the
@@ -507,6 +611,8 @@ export default function WorkoutPage() {
     }
     try {
       await deleteSession.mutateAsync({ sessionId });
+      // Only after the server confirmed the delete (see handleCancelSession).
+      await outbox.discardSession(sessionId).catch(() => {});
     } catch {
       // onSettled refetches either way, so a failure simply leaves the card
       // in place rather than silently pretending it was deleted.
@@ -575,6 +681,9 @@ export default function WorkoutPage() {
         </p>
       </div>
 
+      {/* Sets saved on this phone that the server refused — recover or discard */}
+      <UnsyncedSetsCard onRecovered={handleRecovered} />
+
       {/* A failed discard must never look like a successful one. Local state
           is cleared immediately (so the user is not trapped in a workout they
           asked to leave), but if the server call failed the session is still
@@ -612,6 +721,10 @@ export default function WorkoutPage() {
             <div className="flex flex-wrap items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
               <span className="text-sm text-text-primary">
                 Discard this workout and start over?
+                {unsyncedInSession > 0 &&
+                  ` ${unsyncedInSession} set${
+                    unsyncedInSession === 1 ? "" : "s"
+                  } not yet synced will be deleted too.`}
               </span>
               <div className="flex items-center gap-3 ml-auto">
                 <button
@@ -650,7 +763,7 @@ export default function WorkoutPage() {
                 existingSets={activeExerciseSets}
                 sessionId={activeSessionId}
                 date={selectedDate}
-                isPending={logSet.isPending}
+                isPending={savingSet}
                 onLogSet={handleLogSet}
                 onDone={() => {
                   // If this exercise was part of the template plan and got at

@@ -16,10 +16,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils/cn";
+import { useOutbox } from "@/lib/offline/outbox-provider";
+import { getOutboxStore } from "@/lib/offline/outbox-store";
 
 export function DangerZoneCard() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { userId } = useOutbox();
 
   const { data, isLoading } = useQuery<{ deletionAvailable: boolean }>({
     queryKey: ["account", "deletion-available"],
@@ -72,6 +75,8 @@ export function DangerZoneCard() {
         } | null;
         throw new Error(body?.error ?? "Delete failed");
       }
+      // The account is gone, so its unsynced sets can never be saved.
+      await getOutboxStore().clearUser(userId).catch(() => {});
       queryClient.clear();
       router.push("/login");
       router.refresh();

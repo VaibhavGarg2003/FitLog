@@ -458,4 +458,76 @@ describe.skipIf(!TEST_URL)("session activity (integration)", () => {
     });
     expect(sets).toBe(2);
   });
+
+  // The offline outbox retries a set until it sees success. A POST that
+  // committed but lost its response must replay as success even after the
+  // workout was finished elsewhere — not 404, which would mark a SAVED set failed.
+  it("replays a committed set after its session was finished", async () => {
+    const done = await createSession(userId, {
+      date: "2026-01-14",
+      mode: "RECALL",
+    });
+    const clientRequestId = crypto.randomUUID();
+    const first = await addSet(done.id, userId, {
+      exerciseId,
+      weight: 60,
+      reps: 5,
+      clientRequestId,
+    });
+    await prisma.workoutSession.update({
+      where: { id: done.id },
+      data: { status: "COMPLETED" },
+    });
+
+    const replay = await addSet(done.id, userId, {
+      exerciseId,
+      weight: 60,
+      reps: 5,
+      clientRequestId,
+    });
+
+    expect(replay.id).toBe(first.id);
+    expect(
+      await prisma.exerciseSet.count({ where: { sessionId: done.id } })
+    ).toBe(1);
+  });
+
+  it("still refuses a NEW set on a finished session", async () => {
+    const done = await createSession(userId, {
+      date: "2026-01-15",
+      mode: "RECALL",
+    });
+    await prisma.workoutSession.update({
+      where: { id: done.id },
+      data: { status: "COMPLETED" },
+    });
+
+    await expect(
+      addSet(done.id, userId, {
+        exerciseId,
+        weight: 60,
+        reps: 5,
+        clientRequestId: crypto.randomUUID(),
+      })
+    ).rejects.toThrow("Session not found");
+  });
+
+  it("does not replay another user's committed set", async () => {
+    const mine = await createSession(userId, {
+      date: "2026-01-16",
+      mode: "RECALL",
+    });
+    const clientRequestId = crypto.randomUUID();
+    await addSet(mine.id, userId, {
+      exerciseId,
+      weight: 40,
+      reps: 8,
+      clientRequestId,
+    });
+
+    const stranger = crypto.randomUUID();
+    await expect(
+      addSet(mine.id, stranger, { exerciseId, clientRequestId })
+    ).rejects.toThrow("Session not found");
+  });
 });

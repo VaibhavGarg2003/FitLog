@@ -14,6 +14,12 @@
 export const APP_NAME = "FitLog";
 export const APP_DESCRIPTION =
   "Production-ready fitness tracking for Indian gym-goers";
+// Installed-app identity (manifest + browser chrome). The home-screen label is
+// the short name; the full name shows in the install prompt and app info.
+export const PWA_NAME = "MyFitLog";
+export const PWA_SHORT_NAME = "FitLog";
+// Matches --color-background (hsl(220, 20%, 6%)) in app/globals.css.
+export const THEME_COLOR = "#0C0E12";
 
 // ─── Route Paths ───────────────────────────────────────
 // Centralized so route changes don't require find-and-replace
