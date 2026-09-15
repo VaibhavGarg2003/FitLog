@@ -5,10 +5,11 @@
  * ══════════════════════════════════════════════════
  *
  * Lists every exercise logged in the ACTIVE session (grouped, first-logged
- * order) straight from the server data, which is refetched after every
- * mutation — so it is always the source of truth.
+ * order). The list is server sets merged with sets still queued on this phone
+ * (lib/offline/merge-sets.ts), so a set appears the moment it is logged — even
+ * with no signal — and turns into a normal editable row once it syncs.
  *
- * FULLY EDITABLE, by intention:
+ * EDITABLE, by intention (server sets only):
  *   • "+ sets"  → reopen the exercise in the SetLogger
  *   • ✎ per set → inline editor (weight, reps, intensity, warm-up, delete),
  *                 which lives in <SetRow> so the SetLogger can offer the
@@ -19,27 +20,18 @@
  * invalidate the sessions query, so the card re-renders from fresh data.
  */
 
-import { SetRow } from "./set-row";
+import {
+  displaySetKey,
+  type DisplaySet,
+  type ServerSet,
+} from "@/lib/offline/merge-sets";
+import { DisplaySetRow } from "./local-set-row";
 
-export interface ActiveSet {
-  id: string;
-  setNumber: number;
-  weight?: number | null;
-  reps?: number | null;
-  rpe?: number | null;
-  isWarmup: boolean;
-  exercise: {
-    id: string;
-    name: string;
-    muscleGroup: string;
-    category: string;
-    metValue: number;
-    isCompound: boolean;
-  };
-}
+/** A set as the server returns it for the active session. */
+export type ActiveSet = ServerSet;
 
 interface LoggedExercisesProps {
-  sets: ActiveSet[];
+  sets: DisplaySet[];
   sessionId: string;
   date: string;
   activeExerciseId?: string | null;
@@ -55,7 +47,7 @@ export function LoggedExercises({
   onAddSets,
 }: LoggedExercisesProps) {
   // Group sets by exercise, keeping first-logged order.
-  const groups: { exercise: ActiveSet["exercise"]; sets: ActiveSet[] }[] = [];
+  const groups: { exercise: ActiveSet["exercise"]; sets: DisplaySet[] }[] = [];
   for (const set of sets) {
     const entry = groups.find((g) => g.exercise.id === set.exercise.id);
     if (entry) entry.sets.push(set);
@@ -103,8 +95,8 @@ export function LoggedExercises({
               {/* Set rows */}
               <div className="mt-2 space-y-1">
                 {group.sets.map((set) => (
-                  <SetRow
-                    key={set.id}
+                  <DisplaySetRow
+                    key={displaySetKey(set)}
                     set={set}
                     sessionId={sessionId}
                     date={date}

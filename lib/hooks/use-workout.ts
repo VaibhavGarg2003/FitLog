@@ -4,12 +4,18 @@
  *
  * useWorkoutsForDate() — fetches sessions for a date
  * useStartSession()    — mutation to start a new session
- * useLogSet()          — mutation to add a set to a session
  * useFinishSession()   — mutation to complete a session (calculates burn)
+ *
+ * ADDING A SET IS NOT HERE:
+ * ─────────────────────────
+ * New sets go through the on-device outbox (lib/offline/outbox-provider.tsx,
+ * `useOutbox().enqueueSet`) so they survive having no signal. There is
+ * deliberately no direct "POST a set" hook: a second, online-only path would
+ * be an easy way to bypass the queue by accident.
  *
  * SET MUTATIONS RETURN THEIR INVALIDATION:
  * ────────────────────────────────────────
- * useLogSet / useUpdateSet / useDeleteSet `return` the invalidateQueries
+ * useUpdateSet / useDeleteSet `return` the invalidateQueries
  * promise from onSuccess, so `mutateAsync` only resolves once the sessions
  * query has REFETCHED. The workout page derives "Set N" and the session set
  * count straight from that query, so resolving early would leave the logger
@@ -55,38 +61,6 @@ export function useStartSession(date: string) {
       // unfinished list, which is not keyed by date.
       queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] });
     },
-  });
-}
-
-export function useLogSet(date: string) {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (data: {
-      sessionId: string;
-      exerciseId: string;
-      setNumber: number;
-      weight?: number;
-      reps?: number;
-      rpe?: number;
-      isWarmup?: boolean;
-      clientRequestId: string;
-    }) => {
-      const { sessionId, ...setData } = data;
-      const res = await fetch(`/api/workout/${sessionId}/sets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(setData),
-      });
-      if (!res.ok) throw new Error("Failed to add set");
-      return res.json();
-    },
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["workout", "sessions", date],
-      }).then(() =>
-        queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] })
-      ),
   });
 }
 

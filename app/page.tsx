@@ -27,6 +27,7 @@ import { APP_NAME } from "@/lib/utils/constants";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { isUserOnboarded } from "@/lib/repositories/profile.repository";
 import { UserMenu } from "@/components/shared/user-menu";
+import { InstallButton } from "@/components/pwa/install-button";
 
 const APP_NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -64,7 +65,7 @@ export default async function LandingPage() {
             >
               Complete setup
             </Link>
-            <UserMenu />
+            <UserMenu userId={userId ?? undefined} />
           </div>
         ) : isLoggedIn ? (
           /* Fully onboarded member navbar */
@@ -86,7 +87,7 @@ export default async function LandingPage() {
                 Open app
               </Link>
             </nav>
-            <UserMenu />
+            <UserMenu userId={userId ?? undefined} />
           </div>
         ) : (
           /* Visitor navbar */
@@ -166,6 +167,11 @@ export default async function LandingPage() {
               ? "Go to Dashboard →"
               : "Get started — it's free"}
         </Link>
+
+        {/* Shows only when Chrome says the app is installable and it isn't
+            already running installed. Opens /dashboard, which sends logged-out
+            users to login first. */}
+        <InstallButton className="mt-4" label="Install the app" />
 
         {needsOnboarding && (
           <p className="mt-4 text-sm text-text-muted max-w-sm">

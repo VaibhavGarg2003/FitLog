@@ -68,6 +68,27 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      // ── Service worker ──────────────────────────────────
+      // no-store: a stale sw.js in the HTTP cache would keep phones on an old
+      // worker. The narrow CSP limits what the worker script itself may load
+      // (the page-wide CSP decision above is unaffected).
+      {
+        source: "/sw.js",
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/javascript; charset=utf-8",
+          },
+          {
+            key: "Cache-Control",
+            value: "no-cache, no-store, must-revalidate",
+          },
+          {
+            key: "Content-Security-Policy",
+            value: "default-src 'self'; script-src 'self'",
+          },
+        ],
+      },
     ];
   },
 };

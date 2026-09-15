@@ -17,12 +17,18 @@ import {
 import { startWorkoutSchema } from "@/lib/validators/api.schema";
 import { localDateStr } from "@/lib/utils/local-date";
 import { handleRouteError } from "@/lib/utils/errors";
+import { isExpectedUserMismatch } from "@/lib/utils/expected-user";
 
 export async function POST(request: NextRequest) {
   try {
     const userId = await getAuthUserId();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // Offline-outbox recovery names the user whose sets it is saving; a
+    // different signed-in account must not receive them (see expected-user.ts).
+    if (isExpectedUserMismatch(request.headers, userId)) {
+      return NextResponse.json({ error: "Signed in as a different user" }, { status: 401 });
     }
 
     let body: unknown;

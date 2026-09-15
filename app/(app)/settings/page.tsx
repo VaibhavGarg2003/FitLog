@@ -29,6 +29,9 @@ import { GoalCard } from "./_components/goal-card";
 import { SigninMethodsCard } from "./_components/signin-methods-card";
 import { SharedLinksCard } from "./_components/shared-links-card";
 import { DangerZoneCard } from "./_components/danger-zone-card";
+import { InstallAppCard } from "@/components/pwa/install-button";
+import { signOutClient } from "@/lib/offline/sign-out";
+import { useOutbox } from "@/lib/offline/outbox-provider";
 import { cn } from "@/lib/utils/cn";
 
 const ACTIVITY_OPTIONS = [
@@ -57,18 +60,19 @@ export default function SettingsPage() {
   const { data: profile, isLoading } = useProfile();
   const queryClient = useQueryClient();
   const router = useRouter();
+  // Server-verified id from the app shell — available before the profile loads.
+  const { userId } = useOutbox();
   const [signingOut, setSigningOut] = useState(false);
 
   async function handleSignOut() {
     setSigningOut(true);
-    try {
-      // Server clears httpOnly session cookies — no browser token access
-      await fetch("/api/auth/logout", { method: "POST" });
-    } catch {
-      // Still clear client state and leave the app even if the request fails
+    // Server clears httpOnly session cookies; the helper also warns about
+    // sets not yet synced and clears cached query data for the next user.
+    const signedOut = await signOutClient(userId, queryClient);
+    if (!signedOut) {
+      setSigningOut(false);
+      return;
     }
-    // Clear all cached query data so next user gets a clean slate
-    queryClient.clear();
     router.push("/login");
     router.refresh();
   }
@@ -175,6 +179,9 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+
+          {/* Install as an app — renders only when the browser allows it */}
+          <InstallAppCard />
 
           {/* Weight goal — set / change / remove; drives Dashboard goal card */}
           <GoalCard />

@@ -313,11 +313,24 @@ export async function findSessionForUser(sessionId: string, userId: string) {
 /**
  * Add a set to an active session.
  *
+ * - If clientRequestId is present and that set was already committed, returns
+ *   it BEFORE checking the session is still in progress (see below).
  * - Locks the session (owner + IN_PROGRESS).
- * - If clientRequestId is present and a row already exists, returns it
- *   (idempotent replay — no second insert).
+ * - Rechecks clientRequestId under the lock (idempotent replay — no second insert).
  * - Derives setNumber server-side as max(setNumber)+1 for (session, exercise).
  * - Touches parent updated_at in the same transaction.
+ *
+ * WHY THE REPLAY LOOKUP COMES BEFORE THE STATUS CHECK:
+ * ────────────────────────────────────────────────────
+ * The offline outbox (lib/offline/) retries a set until it sees a success.
+ * If the first POST committed but its response was lost, and the workout was
+ * finished before the retry (e.g. on another device), the locked path would
+ * answer 404 — reporting a set that IS saved as failed. A committed set is a
+ * fact regardless of the session's current status, so it replays as success.
+ * The lookup is owner-scoped through the session relation, so another user's
+ * clientRequestId matches nothing. It runs outside the transaction on purpose:
+ * lockActiveSessionForUser stays the first statement inside it. It runs once
+ * more if the lock finds no active session (see the NotFoundError branch).
  *
  * Retry (max 3) is OUTSIDE the transaction — see file header.
  */
@@ -333,6 +346,25 @@ export async function addSet(
     clientRequestId?: string;
   }
 ) {
+  const findCommitted = () =>
+    data.clientRequestId
+      ? prisma.exerciseSet.findFirst({
+          where: {
+            sessionId,
+            clientRequestId: data.clientRequestId,
+            session: { userId },
+          },
+          include: {
+            exercise: {
+              select: { name: true, muscleGroup: true, isCompound: true },
+            },
+          },
+        })
+      : Promise.resolve(null);
+
+  const committed = await findCommitted();
+  if (committed) return committed;
+
   let lastError: unknown;
 
   for (let attempt = 0; attempt < ADD_SET_MAX_ATTEMPTS; attempt++) {
@@ -387,7 +419,14 @@ export async function addSet(
       });
     } catch (error) {
       // NotFoundError must not be retried — the session is gone/owned/finished.
-      if (error instanceof NotFoundError) throw error;
+      // One last replay check first: the original insert may have been still
+      // uncommitted when the lookup above ran, then committed just before a
+      // concurrent Finish took the lock. That set is saved; report it as such.
+      if (error instanceof NotFoundError) {
+        const lateCommit = await findCommitted();
+        if (lateCommit) return lateCommit;
+        throw error;
+      }
 
       const isUniqueViolation =
         error instanceof Prisma.PrismaClientKnownRequestError &&

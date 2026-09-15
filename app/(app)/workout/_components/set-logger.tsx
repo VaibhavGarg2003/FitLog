@@ -17,7 +17,8 @@
  *
  * SET NUMBERING IS DERIVED, NOT COUNTED LOCALLY:
  * ──────────────────────────────────────────────
- * `existingSets` comes from the server on every render, so deleting set 3
+ * `existingSets` is re-derived on every render (server sets plus sets still
+ * queued on this phone — lib/offline/merge-sets.ts), so deleting set 3
  * immediately turns "Log Set 4" back into "Log Set 3". The server keeps set
  * numbers contiguous per exercise (see deleteSetForUser), so "count + 1" is
  * always the right next number.
@@ -44,7 +45,8 @@
 
 import { useRef, useState } from "react";
 import { Copy } from "lucide-react";
-import { SetRow, type LoggedSet } from "./set-row";
+import { displaySetKey, type DisplaySet } from "@/lib/offline/merge-sets";
+import { DisplaySetRow } from "./local-set-row";
 
 const INTENSITY_LABELS: Record<number, string> = {
   1: "Very Easy",
@@ -57,7 +59,7 @@ const INTENSITY_LABELS: Record<number, string> = {
 interface SetLoggerProps {
   exerciseName: string;
   /** This exercise's sets in the active session, ascending — server truth. */
-  existingSets: LoggedSet[];
+  existingSets: DisplaySet[];
   sessionId: string;
   date: string;
   onLogSet: (data: {
@@ -127,8 +129,10 @@ export function SetLogger({
         })
       );
     } catch {
-      // Keep form values AND the clientRequestId so the user can fix and retry.
-      setError("Could not log the set. Try again.");
+      // Keep form values AND the clientRequestId so a retry can't duplicate.
+      // Logging only fails if the phone itself couldn't store the set — the
+      // network is handled afterwards by the outbox (lib/offline/).
+      setError("Couldn't save the set on this phone. Try again.");
       return;
     }
 
@@ -181,8 +185,8 @@ export function SetLogger({
             Already logged · {setsLogged} set{setsLogged !== 1 ? "s" : ""}
           </p>
           {existingSets.map((set) => (
-            <SetRow
-              key={set.id}
+            <DisplaySetRow
+              key={displaySetKey(set)}
               set={set}
               sessionId={sessionId}
               date={date}

@@ -27,6 +27,8 @@ import { getAuthUserId } from "@/lib/supabase/server";
 import { isUserOnboarded } from "@/lib/repositories/profile.repository";
 import { TopNav } from "@/components/shared/top-nav";
 import { BottomNav } from "@/components/shared/bottom-nav";
+import { OutboxProvider } from "@/lib/offline/outbox-provider";
+import { OfflineBanner } from "@/components/pwa/offline-banner";
 
 export default async function AppLayout({
   children,
@@ -50,15 +52,21 @@ export default async function AppLayout({
     // Full-viewport app shell — background + chrome always 100% wide.
     // No pixel max-width on the shell; only horizontal padding as gutters.
     // Page components use grids inside this full-width main.
-    <div className="w-full min-h-dvh bg-background flex flex-col">
-      {/* Desktop nav + mobile logo/home bar (responsive; see top-nav.tsx) */}
-      <TopNav />
-      {/* Bottom padding only below lg where the fixed BottomNav sits. */}
-      <main className="w-full flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 pt-4 pb-24 lg:pb-8">
-        {children}
-      </main>
-      <BottomNav />
-    </div>
+    // OutboxProvider: queued offline sets for THIS user, synced in the
+    // background on every app page (see lib/offline/outbox-provider.tsx).
+    <OutboxProvider userId={userId}>
+      <div className="w-full min-h-dvh bg-background flex flex-col">
+        {/* Desktop nav + mobile logo/home bar (responsive; see top-nav.tsx) */}
+        <TopNav />
+        {/* Offline / sync status — renders nothing when all is well */}
+        <OfflineBanner />
+        {/* Bottom padding only below lg where the fixed BottomNav sits. */}
+        <main className="w-full flex-1 px-4 sm:px-6 lg:px-8 xl:px-10 pt-4 pb-24 lg:pb-8">
+          {children}
+        </main>
+        <BottomNav />
+      </div>
+    </OutboxProvider>
   );
 }
 

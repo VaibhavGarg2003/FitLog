@@ -28,10 +28,17 @@
  * - <meta name="description"> — shown in Google search results
  * These are crucial for SEO (Search Engine Optimization).
  */
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Outfit } from "next/font/google";
 import { QueryProvider } from "@/components/providers/query-provider";
-import { APP_NAME, APP_DESCRIPTION } from "@/lib/utils/constants";
+import { PwaProvider } from "@/components/pwa/pwa-provider";
+import { INSTALL_PROMPT_CAPTURE_SCRIPT } from "@/components/pwa/install-prompt-script";
+import {
+  APP_NAME,
+  APP_DESCRIPTION,
+  PWA_NAME,
+  THEME_COLOR,
+} from "@/lib/utils/constants";
 import "./globals.css";
 
 // ─── Font Configuration ───────────────────────────────────
@@ -62,7 +69,14 @@ export const metadata: Metadata = {
     // and it becomes "Dashboard | FitLog" automatically.
   },
   description: APP_DESCRIPTION,
-  // In production, add: openGraph, twitter, icons, manifest
+  // Name Android/Chrome show for the installed app. The manifest link and the
+  // icon links are added automatically from app/manifest.ts and app/icon.png.
+  applicationName: PWA_NAME,
+};
+
+// Colours the phone's status bar and the installed app's title bar.
+export const viewport: Viewport = {
+  themeColor: THEME_COLOR,
 };
 
 // ─── Root Layout Component ────────────────────────────────
@@ -81,11 +95,17 @@ export default function RootLayout({
       // We add font variables to <html> so they're available
       // to ALL descendants via CSS var(--font-inter).
     >
+      <head>
+        {/* Must run before hydration — see install-prompt-script.ts */}
+        <script
+          dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_CAPTURE_SCRIPT }}
+        />
+      </head>
       <body className="w-full min-h-dvh bg-background">
         <QueryProvider>
           {/* QueryProvider wraps everything so any component
               can use useQuery() / useMutation() hooks */}
-          {children}
+          <PwaProvider>{children}</PwaProvider>
         </QueryProvider>
       </body>
     </html>

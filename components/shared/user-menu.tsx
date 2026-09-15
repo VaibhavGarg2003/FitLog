@@ -16,10 +16,23 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { LogOut, User } from "lucide-react";
 import { useProfile } from "@/lib/hooks/use-profile";
+import { signOutClient } from "@/lib/offline/sign-out";
+import { useOptionalOutbox } from "@/lib/offline/outbox-provider";
 import { cn } from "@/lib/utils/cn";
 
-export function UserMenu() {
+interface UserMenuProps {
+  /**
+   * The signed-in user's id from a Server Component. Needed outside the app
+   * shell (landing page), where there is no OutboxProvider, so sign-out can
+   * check this user's unsynced sets without waiting for the profile query.
+   */
+  userId?: string;
+}
+
+export function UserMenu({ userId: serverUserId }: UserMenuProps = {}) {
   const { data: profile } = useProfile();
+  const outbox = useOptionalOutbox();
+  const userId = outbox?.userId ?? serverUserId ?? null;
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -59,12 +72,12 @@ export function UserMenu() {
 
   async function handleSignOut() {
     setSigningOut(true);
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-    } catch {
-      // Still leave the app even if the request fails
+    // Warns about sets not yet synced; leaves the app even if logout fails.
+    const signedOut = await signOutClient(userId, queryClient);
+    if (!signedOut) {
+      setSigningOut(false);
+      return;
     }
-    queryClient.clear();
     router.push("/login");
     router.refresh();
   }
