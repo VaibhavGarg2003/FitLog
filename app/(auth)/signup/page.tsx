@@ -90,6 +90,7 @@ export default function SignupPage() {
   function handleGoogleSignup() {
     setLoading(true);
     // New users go to onboarding after Google signup (via callback redirect).
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- an API route that redirects off-site to Google OAuth; it needs a full document navigation, which router.push cannot do.
     window.location.href =
       "/api/auth/oauth?provider=google&redirect=" +
       encodeURIComponent("/onboarding");

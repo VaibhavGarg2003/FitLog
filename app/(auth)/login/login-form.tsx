@@ -89,6 +89,7 @@ export function LoginForm() {
     // Same OAuth path as signup: Supabase auto-creates auth.users for new
     // Google accounts. Callback sends non-onboarded users to /onboarding.
     // Full navigation to server OAuth starter (no tokens in the browser).
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- an API route that redirects off-site to Google OAuth; it needs a full document navigation, which router.push cannot do.
     window.location.href = `/api/auth/oauth?provider=google&redirect=${encodeURIComponent(redirectTo)}`;
   }
 
