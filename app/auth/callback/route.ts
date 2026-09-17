@@ -37,7 +37,7 @@ import { safeRedirectPath } from "@/lib/utils/safe-redirect";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
-  // origin = "https://fitlog.vercel.app" (your domain)
+  // origin = whichever domain the request arrived on (e.g. "https://myfitlog.vaibhav03.codes")
 
   const code = searchParams.get("code");
   // "link" = this callback is completing a "Connect Google" from Settings,
