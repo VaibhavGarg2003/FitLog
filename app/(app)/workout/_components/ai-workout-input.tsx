@@ -45,7 +45,12 @@ interface AIWorkoutInputProps {
   date: string;
   /** Owner of any saved draft — a shared browser must not leak one. */
   userId: string | null;
-  onImported: (result: ImportWorkoutResult) => void;
+  /**
+   * Called after a successful import, with the date the sets were written to.
+   * The date travels with the result so the page can show its summary on that
+   * day only — the card itself is remounted per date, but page state is not.
+   */
+  onImported: (result: ImportWorkoutResult, date: string) => void;
   /** True while the card is open, so the page can hide competing entry points. */
   onActiveChange?: (active: boolean) => void;
 }
@@ -271,7 +276,7 @@ export function AIWorkoutInput({
               setImportId(null);
               setText("");
               setOpen(false);
-              onImported(result);
+              onImported(result, date);
             },
           });
         }}
