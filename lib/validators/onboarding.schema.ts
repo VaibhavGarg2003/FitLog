@@ -37,6 +37,10 @@ export const step1Schema = z.object({
     .max(50, "Name must be under 50 characters"),
   dateOfBirth: z
     .string()
+    // Calendar day only. The date input always sends YYYY-MM-DD, and the
+    // server computes age with pure calendar math (ageOn) that needs exactly
+    // this shape — "05/10/1998" would be ambiguous anyway.
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter your date of birth")
     .refine((val) => {
       const date = new Date(val);
       const age = Math.floor(

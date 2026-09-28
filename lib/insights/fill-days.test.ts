@@ -4,7 +4,13 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { addDays, fillDays, listDays, MAX_RANGE_DAYS } from "@/lib/insights/fill-days";
+import {
+  addDays,
+  daysBetween,
+  fillDays,
+  listDays,
+  MAX_RANGE_DAYS,
+} from "@/lib/insights/fill-days";
 
 describe("listDays", () => {
   it("lists an inclusive week", () => {
@@ -58,6 +64,23 @@ describe("addDays", () => {
     expect(addDays("2026-10-05", 6)).toBe("2026-10-11");
     expect(addDays("2026-10-11", -13)).toBe("2026-09-28");
     expect(addDays("2026-01-01", -1)).toBe("2025-12-31");
+  });
+});
+
+describe("daysBetween", () => {
+  it("counts whole calendar days, signed", () => {
+    expect(daysBetween("2026-10-01", "2026-10-31")).toBe(30);
+    expect(daysBetween("2026-10-31", "2026-10-01")).toBe(-30);
+    expect(daysBetween("2026-10-01", "2026-10-01")).toBe(0);
+  });
+
+  it("crosses year and leap-day boundaries", () => {
+    expect(daysBetween("2026-12-31", "2027-01-01")).toBe(1);
+    expect(daysBetween("2028-02-28", "2028-03-01")).toBe(2);
+  });
+
+  it("is the inverse of addDays", () => {
+    expect(daysBetween("2026-09-28", addDays("2026-09-28", 120))).toBe(120);
   });
 });
 

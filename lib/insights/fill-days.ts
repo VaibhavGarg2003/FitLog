@@ -36,6 +36,15 @@ export function addDays(day: string, delta: number): string {
 }
 
 /**
+ * Calendar days from `from` to `to` (negative when `to` is earlier).
+ * "2026-10-01" → "2026-10-31" is 30. Whole days only — never a fraction that
+ * depends on what time of day the server happened to run.
+ */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((parseDay(to) - parseDay(from)) / MS_PER_DAY);
+}
+
+/**
  * Every calendar day from `from` to `to`, inclusive, in order.
  * Throws if the range is inverted or longer than MAX_RANGE_DAYS.
  */

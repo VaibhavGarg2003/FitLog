@@ -26,6 +26,10 @@
 
 import type { FitnessGoal, Prisma, TargetSource } from "@prisma/client";
 import { prisma } from "@/lib/supabase/prisma";
+import {
+  calendarDayToDbDate,
+  dbDateToCalendarDay,
+} from "@/lib/utils/local-date";
 
 /** The values one revision records. */
 export interface TargetSnapshot {
@@ -97,19 +101,8 @@ export function planTargetRevision(
   return { write: true, effectiveFrom: today };
 }
 
-/** "YYYY-MM-DD" → the UTC-midnight Date Prisma expects for a @db.Date. */
-function toDbDate(day: string): Date {
-  return new Date(`${day}T00:00:00Z`);
-}
-
-/**
- * A @db.Date value (UTC-midnight Date) → "YYYY-MM-DD".
- * toISOString is correct HERE: the value is a calendar date anchored to UTC
- * midnight by the driver, not a wall-clock instant (see ai.service formatDate).
- */
-function fromDbDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
+const toDbDate = calendarDayToDbDate;
+const fromDbDate = dbDateToCalendarDay;
 
 /**
  * Record a target revision if the targets actually changed.

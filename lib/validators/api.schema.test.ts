@@ -331,3 +331,14 @@ describe("updateProfileSchema — timezone rides along", () => {
     expect(updateProfileSchema.safeParse({ timezone: "Asia/Kolkata" }).success).toBe(false);
   });
 });
+
+describe("onboarding dateOfBirth", () => {
+  it("accepts the date input's YYYY-MM-DD and rejects other formats", async () => {
+    const { step1Schema } = await import("@/lib/validators/onboarding.schema");
+    const base = { name: "Aman", sex: "MALE" as const };
+    expect(step1Schema.safeParse({ ...base, dateOfBirth: "1998-05-10" }).success).toBe(true);
+    // Parseable by new Date() but not a calendar day ageOn() can read.
+    expect(step1Schema.safeParse({ ...base, dateOfBirth: "05/10/1998" }).success).toBe(false);
+    expect(step1Schema.safeParse({ ...base, dateOfBirth: "1998-05-10T00:00:00Z" }).success).toBe(false);
+  });
+});

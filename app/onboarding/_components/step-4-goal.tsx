@@ -19,6 +19,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { cn } from "@/lib/utils/cn";
 import { step4Schema } from "@/lib/validators/onboarding.schema";
+import { ageOn, localDateStr } from "@/lib/utils/local-date";
 import {
   calculateBMR,
   calculateTDEE,
@@ -66,14 +67,17 @@ function targetWeightError(value: number | undefined): string | undefined {
   return validation.error.flatten().fieldErrors.targetWeightKg?.[0];
 }
 
+// Same calendar math the server uses in completeOnboarding, on the same day
+// (this device's date = the zone onboarding sends), so the previewed plan and
+// the saved plan are built from the same age. new Date(dob).getDate() read
+// the birthday a day early anywhere west of UTC.
 function ageFromDob(dobStr: string | undefined): number {
   if (!dobStr) return 25;
-  const today = new Date();
-  const birth = new Date(dobStr);
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-  return age;
+  try {
+    return ageOn(dobStr, localDateStr());
+  } catch {
+    return 25; // half-typed date: the form's own validation will say so
+  }
 }
 
 /**

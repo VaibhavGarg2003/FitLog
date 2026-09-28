@@ -56,12 +56,43 @@ const MAX_WEIGHT_KG = 1000;
 const MAX_REPS = 200;
 
 /**
- * A metric user typing a three-digit weight is usually reading an imperial
- * plate ("bench 225"). We never convert silently (the app stores and displays
- * kg only, and the manual logger does no conversion either), but above this
- * the review screen asks.
+ * A metric user typing a three-digit weight with NO unit is usually reading
+ * an imperial plate ("bench 225"). Unlabelled numbers are never converted —
+ * we can't know — but above this the review screen asks.
  */
 const IMPLAUSIBLE_KG_THRESHOLD = 250;
+
+// ─────────────────────────────────────────────────────────────
+// POUNDS → KILOGRAMS
+// ─────────────────────────────────────────────────────────────
+// The app stores and displays kg only (exercise_sets.weight). An exercise the
+// user wrote in pounds is converted HERE, before the draft reaches the review
+// screen, and the line says so and must be reviewed — so "bench 225 lbs"
+// arrives as 102.1 kg, never as a 225 kg set that fakes a strength jump in
+// every chart built on it.
+//
+// Two conditions, both required, before anything is converted:
+//   1. the model tagged the exercise "lb", and
+//   2. the user's own text contains a pound unit.
+// Condition 2 is the guard: a model that invents "lb" for a kg workout would
+// otherwise silently shrink every weight by 2.2×.
+
+/** Exact international avoirdupois pound. */
+const KG_PER_LB = 0.45359237;
+
+/**
+ * "lb", "lbs", "pound", "pounds" as a unit — including glued to a number
+ * ("225lbs"). Not inside a word ("elbow", "bulb").
+ */
+const POUND_UNIT = /(?:^|[^a-z])(?:lbs?|pounds?)(?![a-z])/i;
+
+/**
+ * Pounds → kg, to 0.1 kg. Finer is false precision for a plate weight, and it
+ * never rounds a real (positive) weight down to 0, which would fail validation.
+ */
+function lbToKg(lb: number): number {
+  return Math.max(0.1, Math.round(lb * KG_PER_LB * 10) / 10);
+}
 
 // ─────────────────────────────────────────────────────────────
 // THE LLM RESPONSE IS UNTRUSTED INPUT
@@ -153,7 +184,10 @@ export interface DraftExercise {
   /** True when the user must look at this line before it can be imported. */
   needsReview: boolean;
   isCardio: boolean;
-  /** "lb" only ever means "the text said lbs" — nothing is converted. */
+  /**
+   * The unit the user WROTE. `sets[].weight` is always kg: an "lb" line has
+   * already been converted (and carries a warning saying so).
+   */
   unit: "kg" | "lb";
   warnings: string[];
   sets: DraftSet[];
@@ -721,9 +755,12 @@ function expandSets(line: LlmExercise): { sets: DraftSet[]; dropped: number } {
 function buildWarnings(
   line: LlmExercise,
   match: MatchResult,
+  // The numbers AS WRITTEN — for an "lb" line, still in pounds.
   sets: DraftSet[],
   unit: "kg" | "lb",
-  droppedSets: number
+  droppedSets: number,
+  // The model said "lb" but the user's text has no pound unit anywhere.
+  unitClaimUnverified: boolean
 ): string[] {
   const warnings: string[] = [];
 
@@ -768,9 +805,28 @@ function buildWarnings(
     );
   }
 
-  if (unit === "lb") {
+  // A unit only matters when there is a weight: a bodyweight line (pull-ups)
+  // gets no unit warning, so it is not forced into review over nothing.
+  const writtenWeights = [
+    ...new Set(
+      sets.map((set) => set.weight).filter((w): w is number => w !== null)
+    ),
+  ];
+
+  if (unit === "lb" && writtenWeights.length > 0) {
+    // `sets` still holds the numbers as written; say exactly what each became.
+    const shown = writtenWeights
+      .slice(0, 3)
+      .map((lb) => `${lb} lb → ${lbToKg(lb)} kg`)
+      .join(", ");
     warnings.push(
-      "Text said lbs. Weights are stored as written — the app records kg only."
+      `Converted from lbs: ${shown}${writtenWeights.length > 3 ? ", …" : ""}. Check before importing.`
+    );
+  }
+
+  if (unitClaimUnverified && writtenWeights.length > 0) {
+    warnings.push(
+      "The parser read these weights as lbs, but your text doesn't say lbs — kept as kg. Check them."
     );
   }
 
@@ -911,6 +967,8 @@ export async function parseWorkoutText(text: string): Promise<WorkoutDraft> {
   const normalizedText = normalizeExerciseName(text);
   // Clause-level view of the same text, for qualifier attribution.
   const clauses = splitIntoClauses(text);
+  // Whether the user wrote a pound unit anywhere — the guard on converting.
+  const textHasPoundUnit = POUND_UNIT.test(text);
 
   const exercises: DraftExercise[] = [];
   let totalSets = 0;
@@ -924,7 +982,11 @@ export async function parseWorkoutText(text: string): Promise<WorkoutDraft> {
       normalizedText,
       clauses
     );
-    const unit: "kg" | "lb" = line.unit === "lb" ? "lb" : "kg";
+    // Pounds only when the model says so AND the user's text backs it up —
+    // see POUND_UNIT. A model claim the text doesn't support stays kg, loudly.
+    const modelSaidLb = line.unit === "lb";
+    const unit: "kg" | "lb" = modelSaidLb && textHasPoundUnit ? "lb" : "kg";
+    const unitClaimUnverified = modelSaidLb && !textHasPoundUnit;
 
     const expanded = expandSets(line);
     let sets = expanded.sets;
@@ -952,7 +1014,14 @@ export async function parseWorkoutText(text: string): Promise<WorkoutDraft> {
     }
     totalSets += sets.length;
 
-    const warnings = buildWarnings(line, match, sets, unit, expanded.dropped);
+    const warnings = buildWarnings(
+      line,
+      match,
+      sets,
+      unit,
+      expanded.dropped,
+      unitClaimUnverified
+    );
     const isCardio = match.row?.category === "CARDIO" || line.isCardio === true;
 
     // The quote is real text, but are this line's numbers anywhere near it?
@@ -967,6 +1036,17 @@ export async function parseWorkoutText(text: string): Promise<WorkoutDraft> {
         `These numbers are not next to "${match.verifiedQuote}" in what you typed — check this line.`
       );
     }
+
+    // Convert LAST. Every check above compares these numbers with what the
+    // user typed ("225"), so it must see them as written — a converted
+    // 102.1 would falsely read as "not in your text".
+    const storedSets =
+      unit === "lb"
+        ? sets.map((set) => ({
+            ...set,
+            weight: set.weight === null ? null : lbToKg(set.weight),
+          }))
+        : sets;
 
     exercises.push({
       lineId: `line-${index}`,
@@ -995,7 +1075,7 @@ export async function parseWorkoutText(text: string): Promise<WorkoutDraft> {
       isCardio,
       unit,
       warnings,
-      sets,
+      sets: storedSets,
     });
   }
 

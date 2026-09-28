@@ -16,13 +16,17 @@
  */
 
 import { Prisma } from "@prisma/client";
-import type { FitnessGoal, Profile } from "@prisma/client";
+import type { Goal, Profile } from "@prisma/client";
 import { prisma } from "@/lib/supabase/prisma";
-import { ValidationError } from "@/lib/utils/errors";
 import {
   recordTargetRevision,
   type TargetSnapshot,
 } from "@/lib/repositories/target-history.repository";
+import {
+  findActiveGoalTx,
+  replaceActiveGoal,
+  type GoalInput,
+} from "@/lib/repositories/progress.repository";
 
 /**
  * Create a User + Profile in a single database transaction.
@@ -43,14 +47,11 @@ export async function createUserWithProfile(
   profileData: Prisma.ProfileCreateWithoutUserInput,
   extras?: {
     // A real weight goal (omitted when the user skips or picks Maintain).
-    goal?: {
-      type: FitnessGoal;
-      startValue: number;
-      targetValue: number;
-      startDate: Date;
-      targetDate: Date;
-    };
+    goal?: GoalInput;
     // Seed the onboarding-day weight so the Progress page has a starting point.
+    // weightDate is the user's calendar day as a @db.Date (see
+    // calendarDayToDbDate) — required whenever a weight is given, because a
+    // server-clock default dates it on the UTC day, not the user's.
     initialWeightKg?: number;
     weightDate?: Date;
     // First entry in the user's target history. `today` is the user's
@@ -104,7 +105,10 @@ export async function createUserWithProfile(
     // Seed the starting weight (idempotent per day) so start/current weight
     // on the Progress page are populated from day one.
     if (extras?.initialWeightKg != null) {
-      const date = extras.weightDate ?? new Date();
+      if (!extras.weightDate) {
+        throw new Error("createUserWithProfile: weightDate is required with initialWeightKg");
+      }
+      const date = extras.weightDate;
       await tx.weightLog.upsert({
         where: { userId_date: { userId: userData.id, date } },
         update: { weightKg: extras.initialWeightKg },
@@ -112,39 +116,11 @@ export async function createUserWithProfile(
       });
     }
 
-    // Create the active goal. Keep the "one ACTIVE goal per user" invariant by
-    // retiring any prior ACTIVE goal first (matters only on re-onboarding).
-    // The partial unique index goals_one_active_per_user is the real enforcer
-    // under concurrent onboarding; map P2002 to a deliberate conflict rather
-    // than an unhandled 500.
+    // Create the active goal, retiring any prior ACTIVE one (matters only on
+    // re-onboarding). Same helper — and same P2002 → conflict mapping — as a
+    // goal change from Settings.
     if (extras?.goal) {
-      await tx.goal.updateMany({
-        where: { userId: userData.id, status: "ACTIVE" },
-        data: { status: "ABANDONED" },
-      });
-      try {
-        await tx.goal.create({
-          data: {
-            userId: userData.id,
-            type: extras.goal.type,
-            startValue: extras.goal.startValue,
-            targetValue: extras.goal.targetValue,
-            startDate: extras.goal.startDate,
-            targetDate: extras.goal.targetDate,
-            status: "ACTIVE",
-          },
-        });
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === "P2002"
-        ) {
-          throw new ValidationError(
-            "An active goal already exists for this account. Please retry."
-          );
-        }
-        throw error;
-      }
+      await replaceActiveGoal(tx, userData.id, extras.goal);
     }
 
     return { user, profile };
@@ -181,24 +157,39 @@ export async function getProfileByUserId(userId: string) {
  * inside recordTargetRevision always sees the previous save's row, so a revert
  * (2,600 → 1,800) can never be skipped as "unchanged".
  *
+ * GOALS ARE INPUTS TOO:
+ * ─────────────────────
+ * The active goal's target weight and deadline drive "timeline mode", so the
+ * goal is read INSIDE the lock as well. And a goal change is passed in as
+ * `mutate`, which runs under the same lock, before the goal is read:
+ *   lock profile → mutate (e.g. replace the goal) → read goal → compute
+ *   → write profile → write history
+ * So a new goal's calories take effect in the same commit as the goal itself,
+ * and a Settings save racing a goal change can never calculate from the goal
+ * that was just retired.
+ *
  * WHY A CALLBACK:
  * ───────────────
  * The repository owns the transaction; the calorie maths stays in the service.
- * `compute` must be synchronous and pure — fetch anything async (like the
- * active goal) before calling, so the row lock is held for milliseconds.
+ * `compute` must be synchronous and pure, so the row lock is held for
+ * milliseconds.
  *
  * This is the only update path for profile columns that carry targets —
  * a bare update would let targets change without history.
  *
  * Returns null when the user has no profile.
  */
-export async function updateProfileWithTargets(
+export async function updateProfileWithTargets<M = undefined>(
   userId: string,
-  compute: (current: Profile) => {
+  compute: (
+    current: Profile,
+    activeGoal: Goal | null
+  ) => {
     data: Prisma.ProfileUpdateInput;
     revision: { snapshot: TargetSnapshot; today: string };
-  }
-): Promise<Profile | null> {
+  },
+  mutate?: (tx: Prisma.TransactionClient, current: Profile) => Promise<M>
+): Promise<{ profile: Profile; mutation: M | undefined } | null> {
   return prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM profiles WHERE user_id = ${userId} FOR UPDATE
@@ -206,7 +197,9 @@ export async function updateProfileWithTargets(
     if (locked.length === 0) return null;
 
     const current = await tx.profile.findUniqueOrThrow({ where: { userId } });
-    const { data, revision } = compute(current);
+    const mutation = mutate ? await mutate(tx, current) : undefined;
+    const activeGoal = await findActiveGoalTx(tx, userId);
+    const { data, revision } = compute(current, activeGoal);
 
     const profile = await tx.profile.update({ where: { userId }, data });
     await recordTargetRevision(
@@ -216,7 +209,7 @@ export async function updateProfileWithTargets(
       revision.today,
       "PROFILE_UPDATE"
     );
-    return profile;
+    return { profile, mutation };
   });
 }
 
