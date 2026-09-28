@@ -21,6 +21,8 @@ import {
   timezoneSchema,
   updatePreferencesSchema,
   updateProfileSchema,
+  summaryRangeSchema,
+  generateReportSchema,
 } from "@/lib/validators/api.schema";
 
 describe("logCustomFoodSchema", () => {
@@ -350,5 +352,34 @@ describe("onboarding timezone (Step 1)", () => {
     expect(step1Schema.safeParse(base).success).toBe(true);
     expect(step1Schema.safeParse({ ...base, timezone: "Asia/Kolkata" }).success).toBe(true);
     expect(step1Schema.safeParse({ ...base, timezone: "+05:30" }).success).toBe(false);
+  });
+});
+
+describe("AI reports — plan preference, range, generate", () => {
+  it("accepts a plan change on its own, rejects unknown plans", () => {
+    expect(updatePreferencesSchema.safeParse({ insightPlan: "MONTHLY_ONLY" }).success).toBe(true);
+    expect(updatePreferencesSchema.safeParse({ insightPlan: "DAILY" }).success).toBe(false);
+  });
+
+  it("refuses a plan change mixed into a timezone write mode", () => {
+    expect(
+      updatePreferencesSchema.safeParse({ insightPlan: "MONTHLY_ONLY", timezone: "Asia/Kolkata", onlyIfUnset: true }).success
+    ).toBe(false);
+    expect(
+      updatePreferencesSchema.safeParse({ insightPlan: "MONTHLY_ONLY", timezone: "Asia/Kolkata", expectedTimezone: null }).success
+    ).toBe(false);
+  });
+
+  it("falls back to 3M for an unknown range", () => {
+    expect(summaryRangeSchema.parse("1Y")).toBe("1Y");
+    expect(summaryRangeSchema.parse("5Y")).toBe("3M");
+    expect(summaryRangeSchema.parse(undefined)).toBe("3M");
+  });
+
+  it("takes only a report type — never dates — from the client", () => {
+    expect(generateReportSchema.parse({ type: "MONTH" })).toEqual({ type: "MONTH" });
+    expect(generateReportSchema.safeParse({ type: "DAY" }).success).toBe(false);
+    const withDates = generateReportSchema.parse({ type: "WEEK", periodStart: "2020-01-01" });
+    expect(withDates).not.toHaveProperty("periodStart");
   });
 });

@@ -26,6 +26,8 @@ const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models
 const GEMINI_TIMEOUT_MS = 4000;
 
 interface GeminiRequest {
+  /** Override the default timeout (a caller with a bigger budget, e.g. reports). */
+  timeoutMs?: number;
   systemPrompt: string;
   userMessage: string;
   /** Optional: base64-encoded image for multimodal requests */
@@ -97,8 +99,9 @@ export async function callGemini(request: GeminiRequest): Promise<GeminiResponse
   };
 
   // AbortController with timeout — prevents hanging if Gemini is slow
+  const timeoutMs = request.timeoutMs ?? GEMINI_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
@@ -129,7 +132,7 @@ export async function callGemini(request: GeminiRequest): Promise<GeminiResponse
     return { text, provider: "gemini" };
   } catch (error: unknown) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Gemini timed out after ${GEMINI_TIMEOUT_MS}ms`);
+      throw new Error(`Gemini timed out after ${timeoutMs}ms`);
     }
     throw error;
   } finally {

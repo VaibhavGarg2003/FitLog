@@ -65,7 +65,9 @@ export function useLogWeight() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["progress", "weight"] });
+      // All of ["progress"]: the weight list, the range summary and the AI
+      // report cards (a weigh-in can make a saved report "Outdated").
+      queryClient.invalidateQueries({ queryKey: ["progress"] });
     },
   });
 }

@@ -11,7 +11,7 @@
  * WHAT WE LIMIT:
  * ──────────────
  * - AI meal parsing: 15 requests per user per day
- * - Weekly insights: 1 request per user per week
+ * - AI reports: at most 2 per report period (database) + 16/30 days backstop
  * - Auth routes: NOT limited here (handled by Supabase's built-in rate limiting)
  *
  * GRACEFUL DEGRADATION:
@@ -104,6 +104,7 @@ async function runLimit(
       limited: !result.success,
       remaining: result.remaining,
       resetAt: new Date(result.reset),
+      metered: true,
     };
   } catch (error) {
     const reason =
@@ -144,21 +145,24 @@ const mealParserLimiter = (() => {
 })();
 
 /**
- * Weekly Insight Rate Limiter
- * ───────────────────────────
- * 1 request per user per 7-day sliding window.
- * The insight is cached in the database anyway, but this prevents
- * spamming the LLM with regeneration requests.
+ * AI Report Rate Limiter (backstop)
+ * ─────────────────────────────────
+ * 16 generations per user per 30-day sliding window, across ALL report types.
+ *
+ * The real per-report rule lives in the database (period_insights.attempts:
+ * at most 2 generations per week/month/quarter/year). This is only a
+ * backstop against bugs or enumeration. A normal month is ~4 weekly + 1
+ * monthly (+1 quarterly/yearly at a boundary), each possibly regenerated
+ * once — 16 leaves room for that and nothing like abuse.
  */
-const insightLimiter = (() => {
+const reportLimiter = (() => {
   const redis = getRedis();
   if (!redis) return null;
 
   return new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(2, "7 d"),
-    // 2 instead of 1: allows one regeneration if the first result was bad
-    prefix: "fitlog:ai:insight",
+    limiter: Ratelimit.slidingWindow(16, "30 d"),
+    prefix: "fitlog:ai:report",
   });
 })();
 
@@ -190,6 +194,13 @@ export interface RateLimitResult {
   limited: boolean;
   remaining?: number;
   resetAt?: Date;
+  /**
+   * True only when Redis actually counted this request. False when the
+   * limiter is off or failed open — a caller that refunds its own quota on
+   * failure (AI reports) must not refund an unmetered call, or retries would
+   * be unlimited while Redis is down.
+   */
+  metered?: boolean;
 }
 
 /**
@@ -223,14 +234,14 @@ export async function checkWorkoutParserLimit(
 }
 
 /**
- * Check if a user has exceeded their weekly insight rate limit.
+ * Backstop for AI report generation (all report types together).
  */
-export async function checkInsightLimit(
+export async function checkReportLimit(
   userId: string
 ): Promise<RateLimitResult> {
-  if (!insightLimiter) {
+  if (!reportLimiter) {
     return { limited: false };
   }
 
-  return runLimit(insightLimiter, userId, "weekly insight");
+  return runLimit(reportLimiter, userId, "AI report");
 }

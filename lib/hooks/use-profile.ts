@@ -41,6 +41,8 @@ interface Profile {
   unitSystem: string;
   // IANA zone ("Asia/Kolkata"); null until the device has synced it.
   timezone: string | null;
+  // Which AI coach reports the user gets.
+  insightPlan: "WEEKLY_AND_MONTHLY" | "MONTHLY_ONLY";
   isOnboarded: boolean;
   user: {
     id: string;

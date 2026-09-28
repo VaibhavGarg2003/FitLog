@@ -25,7 +25,19 @@
 
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+
+/**
+ * After any change to a session or its sets: the Unfinished list, and the
+ * Progress family — strength, volume, workout days and AI-report freshness
+ * all come from sets (inactive queries are only marked stale, not refetched).
+ */
+export function invalidateAfterWorkoutChange(queryClient: QueryClient) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] }),
+    queryClient.invalidateQueries({ queryKey: ["progress"] }),
+  ]);
+}
 
 export function useWorkoutsForDate(date: string) {
   return useQuery({
@@ -59,7 +71,7 @@ export function useStartSession(date: string) {
       queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
       // A session changing state can add or remove it from the cross-date
       // unfinished list, which is not keyed by date.
-      queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] });
+      invalidateAfterWorkoutChange(queryClient);
     },
   });
 }
@@ -89,7 +101,7 @@ export function useUpdateSet(date: string) {
       queryClient.invalidateQueries({
         queryKey: ["workout", "sessions", date],
       }).then(() =>
-        queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] })
+        invalidateAfterWorkoutChange(queryClient)
       ),
   });
 }
@@ -111,7 +123,7 @@ export function useDeleteSet(date: string) {
       queryClient.invalidateQueries({
         queryKey: ["workout", "sessions", date],
       }).then(() =>
-        queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] })
+        invalidateAfterWorkoutChange(queryClient)
       ),
   });
 }
@@ -139,7 +151,7 @@ export function useFinishSession(date: string) {
       queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
       // A session changing state can add or remove it from the cross-date
       // unfinished list, which is not keyed by date.
-      queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] });
+      invalidateAfterWorkoutChange(queryClient);
       // A newly COMPLETED session must appear in the Progress page's
       // "Recent Workouts" card immediately — invalidate its cache too.
       queryClient.invalidateQueries({ queryKey: ["progress"] });
@@ -172,7 +184,7 @@ export function useCancelSession(date: string) {
       queryClient.invalidateQueries({
         queryKey: ["workout", "sessions", date],
       }).then(() =>
-        queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] })
+        invalidateAfterWorkoutChange(queryClient)
       ),
   });
 }
@@ -215,7 +227,7 @@ export function useDeleteSession(date: string) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
-      queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] });
+      invalidateAfterWorkoutChange(queryClient);
     },
   });
 }

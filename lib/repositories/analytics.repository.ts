@@ -146,3 +146,58 @@ export async function getWeightLogsInRange(
     ORDER BY wl.date
   `;
 }
+
+export interface StrengthSetRow {
+  date: string; // "YYYY-MM-DD"
+  sessionId: string;
+  exerciseId: string;
+  exerciseName: string;
+  weight: number;
+  reps: number;
+}
+
+/**
+ * Working sets for strength progress, for sessions dated within [from, to].
+ *
+ * Only what an estimated one-rep max can honestly use: not warm-ups, weight
+ * and reps both present and positive, not cardio. Sessions that count as
+ * training — COMPLETED, or IN_PROGRESS (an unfinished session still holds real
+ * sets); never CANCELLED. One query for the whole range.
+ */
+export async function getStrengthSetsInRange(
+  userId: string,
+  from: string,
+  to: string
+): Promise<StrengthSetRow[]> {
+  return prisma.$queryRaw<StrengthSetRow[]>`
+    SELECT to_char(ws.date, 'YYYY-MM-DD') AS date,
+           ws.id                          AS "sessionId",
+           es.exercise_id                 AS "exerciseId",
+           e.name                         AS "exerciseName",
+           es.weight::float8              AS weight,
+           es.reps                        AS reps
+    FROM exercise_sets es
+    JOIN workout_sessions ws ON ws.id = es.session_id
+    JOIN exercises e          ON e.id = es.exercise_id
+    WHERE ws.user_id = ${userId}
+      AND ws.date BETWEEN ${from}::date AND ${to}::date
+      AND ws.status IN ('COMPLETED', 'IN_PROGRESS')
+      AND es.is_warmup = false
+      AND es.weight > 0
+      AND es.reps > 0
+      AND e.category <> 'CARDIO'
+    ORDER BY ws.date, es.set_number
+  `;
+}
+
+/** The account's first calendar day with any logged data (for "All time"). */
+export async function getFirstActivityDay(userId: string): Promise<string | null> {
+  const rows = await prisma.$queryRaw<Array<{ day: string | null }>>`
+    SELECT to_char(LEAST(
+      (SELECT MIN(date) FROM meal_entries     WHERE user_id = ${userId}),
+      (SELECT MIN(date) FROM workout_sessions WHERE user_id = ${userId}),
+      (SELECT MIN(date) FROM weight_logs      WHERE user_id = ${userId})
+    ), 'YYYY-MM-DD') AS day
+  `;
+  return rows[0]?.day ?? null;
+}

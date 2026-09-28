@@ -151,6 +151,7 @@ export async function completeOnboarding(
       dietaryType: formData.dietaryType,
       strictness: formData.strictness,
       unitSystem: formData.unitSystem,
+      insightPlan: formData.insightPlan,
       // undefined (not null) when unknown, so re-onboarding never wipes a
       // zone that was already synced.
       timezone: options.timezone,

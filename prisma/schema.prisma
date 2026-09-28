@@ -72,6 +72,7 @@ model User {
   goals           Goal[]
   workoutTemplates WorkoutTemplate[]
   weeklyInsights  WeeklyInsight[]
+  periodInsights  PeriodInsight[]
   customFoods     CustomFood[]
   targetRevisions TargetRevision[]
 
@@ -116,6 +117,11 @@ model Profile {
 
   workoutSplit    WorkoutSplit? @map("workout_split")
   unitSystem      UnitSystem   @default(METRIC) @map("unit_system")
+
+  insightPlan     InsightPlan  @default(WEEKLY_AND_MONTHLY) @map("insight_plan")
+  // Which AI coach reports the user gets: weekly coaching + monthly review
+  // (default), or the monthly review only. Monthly (and quarterly/yearly)
+  // reviews are for everyone. Chosen in onboarding Step 5 and Settings.
 
   timezone        String?
   // IANA name ("Asia/Kolkata") — the calendar the user's history is dated in.
@@ -607,6 +613,62 @@ model TargetRevision {
 }
 
 // ─────────────────────────────────────────────────────────────
+// PERIOD REPORTS (weekly / monthly / quarterly / yearly AI reviews)
+// ─────────────────────────────────────────────────────────────
+// One row per user per report period. Replaces weekly_insights (kept,
+// read-only, until a later cleanup release; its rows were copied here).
+//
+// The AI only writes the prose (content/highlights/suggestion). Every number
+// lives in `facts`, built by code (lib/insights/facts.ts); factsHash detects
+// when the user later edits data inside the period ("outdated").
+//
+// GENERATION LOCK: status GENERATING + leaseToken/leaseExpiresAt. Taking the
+// lease is one atomic INSERT … ON CONFLICT … WHERE (not generating, or lease
+// expired) AND attempts < 2 — so two taps never pay for two AI calls, a
+// crashed request frees itself after the lease expires, and a period can be
+// generated at most twice. No transaction is held while the AI works.
+
+model PeriodInsight {
+  id             String        @id @default(uuid())
+  userId         String        @map("user_id")
+  periodType     PeriodType    @map("period_type")
+  periodStart    DateTime      @map("period_start") @db.Date
+  // Calendar start of the period — the report's identity.
+  coveredStart   DateTime      @map("covered_start") @db.Date
+  // First day actually covered: later than periodStart for a partial first
+  // month/quarter/year (account started inside it).
+  periodEnd      DateTime      @map("period_end") @db.Date
+  partial        Boolean       @default(false)
+
+  status         InsightStatus @default(GENERATING)
+  leaseToken     String?       @map("lease_token")
+  leaseExpiresAt DateTime?     @map("lease_expires_at")
+  attempts       Int           @default(0)
+
+  content        String?
+  highlights     Json?         @default("[]")
+  suggestion     String?
+  facts          Json?
+  factsHash      String?       @map("facts_hash")
+  statsVersion   Int           @default(1) @map("stats_version")
+  promptVersion  Int           @default(1) @map("prompt_version")
+  provider       String?
+  legacy         Boolean       @default(false)
+  // true = copied from weekly_insights (covered "this week so far").
+
+  generatedAt    DateTime?     @map("generated_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodType, periodStart])
+  // Also the archive's lookup index (user_id leads, covers the FK).
+
+  @@map("period_insights")
+}
+
+// ─────────────────────────────────────────────────────────────
 // WEEKLY AI INSIGHTS
 // ─────────────────────────────────────────────────────────────
 // Stores the AI-generated weekly coaching summaries.
@@ -736,6 +798,24 @@ enum GoalStatus {
   ACTIVE
   COMPLETED
   ABANDONED
+}
+
+enum InsightPlan {
+  WEEKLY_AND_MONTHLY // weekly coaching + monthly review (default)
+  MONTHLY_ONLY       // monthly review only
+}
+
+enum PeriodType {
+  WEEK
+  MONTH
+  QUARTER
+  YEAR
+}
+
+enum InsightStatus {
+  GENERATING // lease held; the AI is writing (content may hold the previous version)
+  READY
+  FAILED     // first generation failed; nothing to show yet
 }
 
 enum TargetSource {

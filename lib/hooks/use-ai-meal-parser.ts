@@ -67,6 +67,8 @@ export function useAIMealParser(date: string) {
       queryClient.invalidateQueries({
         queryKey: ["nutrition", "daily", date],
       });
+      // Progress averages / report freshness (refetched when next shown).
+      queryClient.invalidateQueries({ queryKey: ["progress"] });
     },
   });
 }

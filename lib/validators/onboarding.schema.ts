@@ -106,6 +106,9 @@ export const step5Schema = z.object({
   dietaryType: z.enum(["VEG", "NON_VEG", "VEGAN", "EGGETARIAN"]),
   strictness: z.enum(["RELAXED", "MODERATE", "STRICT"]).default("MODERATE"),
   unitSystem: z.enum(["METRIC", "IMPERIAL"]).default("METRIC"),
+  // AI coach reports: weekly + monthly (default) or monthly only. Monthly,
+  // quarterly and yearly reviews are for everyone.
+  insightPlan: z.enum(["WEEKLY_AND_MONTHLY", "MONTHLY_ONLY"]).default("WEEKLY_AND_MONTHLY"),
 });
 
 // ── Combined: Full onboarding form ───────────────

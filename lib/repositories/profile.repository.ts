@@ -222,7 +222,7 @@ export async function updateProfileWithTargets<M = undefined>(
  */
 export async function updatePreferences(
   userId: string,
-  data: { timezone?: string }
+  data: { timezone?: string; insightPlan?: "WEEKLY_AND_MONTHLY" | "MONTHLY_ONLY" }
 ): Promise<boolean> {
   const res = await prisma.profile.updateMany({
     where: { userId },

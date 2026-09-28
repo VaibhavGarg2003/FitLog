@@ -2,6 +2,7 @@
 
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { cn } from "@/lib/utils/cn";
+import { AiDataNotice, InsightPlanPicker } from "@/components/shared/insight-plan";
 
 const DIETARY_OPTIONS = [
   { value: "VEG" as const, emoji: "🥬", title: "Vegetarian" },
@@ -115,6 +116,25 @@ export function Step5Preferences({ onSubmit, isSubmitting }: Step5Props) {
               </div>
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* AI coach check-ins — changeable later in Settings */}
+      <div>
+        <label className="block text-sm font-medium text-text-secondary mb-1">
+          AI Coach Check-ins
+        </label>
+        <p className="text-xs text-text-muted mb-3">
+          Everyone gets a monthly review. Pick whether you also want a weekly
+          report — you can change this any time in Settings.
+        </p>
+        <InsightPlanPicker
+          idPrefix="onboarding-plan"
+          value={formData.insightPlan ?? "WEEKLY_AND_MONTHLY"}
+          onChange={(insightPlan) => updateFormData({ insightPlan })}
+        />
+        <div className="mt-3">
+          <AiDataNotice />
         </div>
       </div>
 

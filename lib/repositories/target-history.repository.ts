@@ -172,3 +172,17 @@ export async function getTargetsOnDate(userId: string, day: string) {
   });
   return row ? { ...row, effectiveFrom: fromDbDate(row.effectiveFrom) } : null;
 }
+
+/**
+ * Every revision effective on or before `day`, oldest first — what a period
+ * report needs to know the target in force on each of its days. A user has a
+ * handful of rows, so fetching all up to the end of the period is cheap.
+ */
+export async function getRevisionsUpTo(userId: string, day: string) {
+  const rows = await prisma.targetRevision.findMany({
+    where: { userId, effectiveFrom: { lte: toDbDate(day) } },
+    orderBy: { effectiveFrom: "asc" },
+    select: { effectiveFrom: true, targetCalories: true, targetProtein: true },
+  });
+  return rows.map((r) => ({ ...r, effectiveFrom: fromDbDate(r.effectiveFrom) }));
+}

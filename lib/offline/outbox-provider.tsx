@@ -206,6 +206,8 @@ export function OutboxProvider({
           void queryClient.invalidateQueries({ queryKey: ["workout", "sessions", date] });
         }
         void queryClient.invalidateQueries({ queryKey: ["workout", "unfinished"] });
+        // Synced sets change strength/volume and AI-report freshness.
+        void queryClient.invalidateQueries({ queryKey: ["progress"] });
       }
     } catch (error) {
       console.warn("[outbox] drain failed", error);
