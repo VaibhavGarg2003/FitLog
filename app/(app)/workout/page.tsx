@@ -51,12 +51,13 @@ import { UnfinishedSessionCard } from "./_components/unfinished-session-card";
 import { AIWorkoutInput } from "./_components/ai-workout-input";
 import { UnsyncedSetsCard } from "./_components/unsynced-sets-card";
 import { useProfile } from "@/lib/hooks/use-profile";
-import { localDateStr } from "@/lib/utils/local-date";
+import { useUserToday } from "@/components/shared/timezone-provider";
 import { useOutbox } from "@/lib/offline/outbox-provider";
 import { mergeSessionSets, nextSetNumber } from "@/lib/offline/merge-sets";
 
 export default function WorkoutPage() {
   const selectedDate = useUIStore((s) => s.selectedDate);
+  const userToday = useUserToday();
   const setSelectedDate = useUIStore((s) => s.setSelectedDate);
   const { data: sessions, isLoading } = useWorkoutsForDate(selectedDate);
   const startSession = useStartSession(selectedDate);
@@ -541,9 +542,9 @@ export default function WorkoutPage() {
     </div>
   );
 
-  // Local-timezone "today" (never toISOString — see lib/utils/local-date.ts),
-  // used only to word the resume prompt for a past day vs the current one.
-  const todayStr = localDateStr();
+  // "Today" on the account's calendar (saved time zone), used only to word
+  // the resume prompt for a past day vs the current one.
+  const todayStr = userToday;
 
   // ── Unfinished workouts, across ALL dates ─────────────────────────
   // NOT scoped to the selected date. The date strip only reaches back 7 days

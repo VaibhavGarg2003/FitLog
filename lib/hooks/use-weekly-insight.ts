@@ -19,7 +19,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { localDateStr } from "@/lib/utils/local-date";
+import { useUserToday } from "@/components/shared/timezone-provider";
 
 interface WeeklyInsightData {
   /** false = no insight generated for this week yet (show the Generate button) */
@@ -32,19 +32,26 @@ interface WeeklyInsightData {
   cached?: boolean;
 }
 
-const QUERY_KEY = ["ai", "weekly-insight"] as const;
+/**
+ * Keyed by the app's "today" (saved time zone): when the day — and so possibly
+ * the week — rolls over, or the time zone is switched, the key changes and the
+ * right week is fetched. A constant key kept serving last week's insight for up
+ * to 24 hours after a week boundary.
+ */
+const queryKey = (today: string) => ["ai", "weekly-insight", today] as const;
 
 /**
  * Read this week's cached insight. Safe to call on mount — it never generates.
  */
 export function useWeeklyInsight() {
+  const today = useUserToday();
   return useQuery<WeeklyInsightData>({
-    queryKey: QUERY_KEY,
+    queryKey: queryKey(today),
     queryFn: async () => {
-      // Send the USER'S local date — the server runs in UTC and must not
-      // compute "this week" from its own clock (Mon 9am IST is still Sunday
-      // in UTC, which would serve last week's insight as "this week").
-      const res = await fetch(`/api/ai/weekly-insight?date=${localDateStr()}`);
+      // Send the USER'S date on the account's calendar — the server runs in
+      // UTC and must not compute "this week" from its own clock (Mon 9am IST
+      // is still Sunday in UTC, which would serve last week's insight).
+      const res = await fetch(`/api/ai/weekly-insight?date=${today}`);
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || "Failed to load weekly insight");
@@ -64,10 +71,14 @@ export function useWeeklyInsight() {
  */
 export function useGenerateWeeklyInsight() {
   const queryClient = useQueryClient();
+  const today = useUserToday();
 
-  return useMutation<WeeklyInsightData, Error>({
-    mutationFn: async () => {
-      const res = await fetch(`/api/ai/weekly-insight?date=${localDateStr()}`, {
+  // The day is a mutation VARIABLE, captured when the button is pressed: if
+  // midnight passes while the LLM runs, the result is still cached under the
+  // day (week) it was generated for, not the new day's key.
+  const mutation = useMutation<WeeklyInsightData, Error, string>({
+    mutationFn: async (day) => {
+      const res = await fetch(`/api/ai/weekly-insight?date=${day}`, {
         method: "POST",
       });
       const data = await res.json();
@@ -77,8 +88,15 @@ export function useGenerateWeeklyInsight() {
       }
       return data;
     },
-    onSuccess: (data) => {
-      queryClient.setQueryData(QUERY_KEY, data);
+    onSuccess: (data, day) => {
+      queryClient.setQueryData(queryKey(day), data);
     },
   });
+
+  // Callers keep calling mutate() with no arguments.
+  return {
+    ...mutation,
+    mutate: () => mutation.mutate(today),
+    mutateAsync: () => mutation.mutateAsync(today),
+  };
 }

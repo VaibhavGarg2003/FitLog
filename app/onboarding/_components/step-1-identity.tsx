@@ -4,16 +4,21 @@ import { useState } from "react";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { step1Schema } from "@/lib/validators/onboarding.schema";
 import { cn } from "@/lib/utils/cn";
+import { useDeviceTimeZone } from "@/components/shared/timezone-provider";
+import { TimezoneSelect } from "@/components/shared/timezone-select";
 
 export function Step1Identity() {
   const { formData, updateFormData, nextStep } = useOnboardingStore();
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Browser-only read — the server has no idea what zone this device is in.
+  const detectedZone = useDeviceTimeZone();
 
   function handleNext() {
     const validation = step1Schema.safeParse({
       name: formData.name,
       dateOfBirth: formData.dateOfBirth,
       sex: formData.sex,
+      timezone: formData.timezone,
     });
 
     if (!validation.success) {
@@ -109,6 +114,29 @@ export function Step1Identity() {
         </div>
         {errors.sex && (
           <p className="mt-2 text-sm text-red-400">{errors.sex}</p>
+        )}
+      </div>
+
+      {/* Time zone — pre-filled from the device, shown so it can be fixed */}
+      <div>
+        <label
+          htmlFor="onboarding-timezone"
+          className="block text-sm font-medium text-text-secondary mb-2"
+        >
+          Time zone
+        </label>
+        <p className="text-xs text-text-muted mb-3">
+          Detected from this device. It decides which day your logs and
+          reports fall on — change it only if it&apos;s wrong.
+        </p>
+        <TimezoneSelect
+          id="onboarding-timezone"
+          value={formData.timezone ?? detectedZone ?? ""}
+          include={[detectedZone]}
+          onChange={(timezone) => updateFormData({ timezone })}
+        />
+        {errors.timezone && (
+          <p className="mt-1 text-sm text-red-400">{errors.timezone}</p>
         )}
       </div>
 

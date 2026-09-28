@@ -19,7 +19,12 @@ import { useState, useMemo, useEffect } from "react";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { cn } from "@/lib/utils/cn";
 import { step4Schema } from "@/lib/validators/onboarding.schema";
-import { ageOn, localDateStr } from "@/lib/utils/local-date";
+import {
+  ageOn,
+  deviceTimeZone,
+  localDateStr,
+  localDateStrInZone,
+} from "@/lib/utils/local-date";
 import {
   calculateBMR,
   calculateTDEE,
@@ -67,14 +72,15 @@ function targetWeightError(value: number | undefined): string | undefined {
   return validation.error.flatten().fieldErrors.targetWeightKg?.[0];
 }
 
-// Same calendar math the server uses in completeOnboarding, on the same day
-// (this device's date = the zone onboarding sends), so the previewed plan and
+// Same calendar math the server uses in completeOnboarding, on the same day —
+// the zone chosen in Step 1 (else this device's) — so the previewed plan and
 // the saved plan are built from the same age. new Date(dob).getDate() read
 // the birthday a day early anywhere west of UTC.
-function ageFromDob(dobStr: string | undefined): number {
+function ageFromDob(dobStr: string | undefined, timeZone: string | undefined): number {
   if (!dobStr) return 25;
   try {
-    return ageOn(dobStr, localDateStr());
+    const zone = timeZone ?? deviceTimeZone();
+    return ageOn(dobStr, zone ? localDateStrInZone(zone) : localDateStr());
   } catch {
     return 25; // half-typed date: the form's own validation will say so
   }
@@ -317,7 +323,7 @@ export function Step4Goal() {
   const engineContext = useMemo(() => {
     const sex = formData.sex ?? "MALE";
     const heightCm = formData.heightCm ?? 170;
-    const age = ageFromDob(formData.dateOfBirth);
+    const age = ageFromDob(formData.dateOfBirth, formData.timezone);
     const activityLevel = formData.activityLevel ?? "MODERATE";
     const bmr = calculateBMR(sex, currentWeight, heightCm, age);
     const tdee = calculateTDEE(bmr, activityLevel);
@@ -327,7 +333,7 @@ export function Step4Goal() {
       tdee,
       wantsMuscle: selectedMode === "lean-muscle",
     };
-  }, [formData.sex, formData.heightCm, formData.dateOfBirth, formData.activityLevel, currentWeight, selectedMode]);
+  }, [formData.sex, formData.heightCm, formData.dateOfBirth, formData.timezone, formData.activityLevel, currentWeight, selectedMode]);
 
   const { options: timelineOptions, unreachableMessage } = useMemo(() => {
     if (!needsTarget || !targetWeightReady || targetWeightNum === undefined) {

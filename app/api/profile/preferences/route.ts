@@ -11,14 +11,18 @@
  * to do with targets — sending it through PUT would recalculate, and possibly
  * change, someone's calories because their phone crossed a timezone.
  *
- * Today's only caller is components/shared/timezone-sync.tsx, which sends
- * `onlyIfUnset: true` — the database only writes the zone if none is stored
- * (fillTimezoneIfUnset), so a late or duplicate sync can never overwrite one.
- * Without that flag the zone is replaced; that path is for a future,
- * deliberate Settings control.
+ * Three write modes for `timezone`:
+ *   - `onlyIfUnset: true` — components/shared/timezone-sync.tsx fills a
+ *     missing zone; the database writes only if none is stored.
+ *   - `expectedTimezone` — a deliberate change (the "you moved" prompt, the
+ *     Settings picker), applied only if the stored zone is still the one the
+ *     user saw; otherwise 409, so a stale screen never overwrites a newer
+ *     choice from another device.
+ *   - neither — unconditional replace (no UI caller).
  *
  * RESPONSE: { success: true, applied } — applied is false when onlyIfUnset
  * found a zone already stored (not an error: there was nothing to fill).
+ * 409 when expectedTimezone no longer matches.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -26,6 +30,7 @@ import { z } from "zod";
 import { getAuthUserId } from "@/lib/supabase/server";
 import {
   fillTimezoneIfUnset,
+  replaceTimezoneIf,
   updatePreferences,
 } from "@/lib/repositories/profile.repository";
 import { updatePreferencesSchema } from "@/lib/validators/api.schema";
@@ -56,7 +61,26 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const { onlyIfUnset, ...preferences } = parsed.data;
+    const { onlyIfUnset, expectedTimezone, ...preferences } = parsed.data;
+
+    // Deliberate change with compare-and-set (prompt / Settings picker).
+    if (expectedTimezone !== undefined && preferences.timezone) {
+      const result = await replaceTimezoneIf(
+        userId,
+        preferences.timezone,
+        expectedTimezone
+      );
+      if (result === "no-profile") {
+        return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+      }
+      if (result === "conflict") {
+        return NextResponse.json(
+          { error: "Your time zone was changed on another device. Reload to see it." },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json({ success: true, applied: true });
+    }
 
     if (onlyIfUnset && preferences.timezone) {
       const result = await fillTimezoneIfUnset(userId, preferences.timezone);

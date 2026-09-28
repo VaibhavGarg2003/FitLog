@@ -12,6 +12,11 @@ import {
   ageOn,
   calendarDayToDbDate,
   dbDateToCalendarDay,
+  canonicalTimeZone,
+  sameTimeZone,
+  timeZoneLabel,
+  listTimeZones,
+  weekdayShort,
 } from "@/lib/utils/local-date";
 
 describe("ageOn", () => {
@@ -120,5 +125,62 @@ describe("todayForUser", () => {
     expect(todayForUser(null)).toBe(localDateStr());
     expect(todayForUser(undefined)).toBe(localDateStr());
     expect(todayForUser("Not/AZone")).toBe(localDateStr());
+  });
+});
+
+describe("canonicalTimeZone / sameTimeZone", () => {
+  it("treats renamed zones as the same place, whichever spelling a runtime reports", () => {
+    expect(canonicalTimeZone("Asia/Calcutta")).toBe("Asia/Kolkata");
+    expect(canonicalTimeZone("Asia/Kolkata")).toBe("Asia/Kolkata");
+    expect(sameTimeZone("Asia/Calcutta", "Asia/Kolkata")).toBe(true);
+    expect(sameTimeZone("Europe/Kiev", "Europe/Kyiv")).toBe(true);
+    expect(sameTimeZone("Asia/Saigon", "Asia/Ho_Chi_Minh")).toBe(true);
+  });
+
+  it("folds runtime aliases", () => {
+    expect(sameTimeZone("US/Eastern", "America/New_York")).toBe(true);
+    expect(sameTimeZone("Etc/UTC", "UTC")).toBe(true);
+  });
+
+  it("never equates different places, even with the same offset today", () => {
+    // London and Lagos share UTC+1 in summer and differ in winter.
+    expect(sameTimeZone("Europe/London", "Africa/Lagos")).toBe(false);
+    expect(sameTimeZone("Asia/Kolkata", "Asia/Colombo")).toBe(false);
+  });
+});
+
+describe("timeZoneLabel", () => {
+  it("shows the current city name and the offset", () => {
+    const winter = new Date("2026-01-15T12:00:00Z");
+    expect(timeZoneLabel("Asia/Calcutta", winter)).toBe("Kolkata · GMT+5:30");
+    expect(timeZoneLabel("America/Los_Angeles", winter)).toBe("Los Angeles · GMT-8");
+  });
+});
+
+describe("listTimeZones", () => {
+  it("lists each place once and always includes the requested zones", () => {
+    const zones = listTimeZones(["Asia/Calcutta", "Asia/Kolkata"]);
+    const india = zones.filter((z) => sameTimeZone(z, "Asia/Kolkata"));
+    expect(india).toHaveLength(1);
+    expect(zones.length).toBeGreaterThan(300);
+    expect(zones).toContain("Europe/London");
+  });
+
+  it("skips invalid names", () => {
+    expect(listTimeZones(["Not/AZone", null, undefined]).includes("Not/AZone")).toBe(false);
+  });
+});
+
+describe("weekdayShort", () => {
+  it("names the calendar day itself, not the device's view of it", () => {
+    expect(weekdayShort("2026-09-28")).toBe("Mon");
+    expect(weekdayShort("2026-10-04")).toBe("Sun");
+    expect(weekdayShort("2028-02-29")).toBe("Tue");
+  });
+});
+
+describe("listTimeZones — UTC", () => {
+  it("always offers UTC, which supportedValuesOf() leaves out", () => {
+    expect(listTimeZones()).toContain("UTC");
   });
 });

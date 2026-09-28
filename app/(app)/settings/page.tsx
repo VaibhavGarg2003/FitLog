@@ -26,6 +26,7 @@ import { useRouter } from "next/navigation";
 import { useProfile } from "@/lib/hooks/use-profile";
 import { useQueryClient } from "@tanstack/react-query";
 import { GoalCard } from "./_components/goal-card";
+import { TimezoneCard } from "./_components/timezone-card";
 import { SigninMethodsCard } from "./_components/signin-methods-card";
 import { SharedLinksCard } from "./_components/shared-links-card";
 import { DangerZoneCard } from "./_components/danger-zone-card";
@@ -189,6 +190,9 @@ export default function SettingsPage() {
 
           {/* Weight goal — set / change / remove; drives Dashboard goal card */}
           <GoalCard />
+
+          {/* Time zone — the calendar the whole app's "today" comes from */}
+          <TimezoneCard />
 
           {/* Sign-in methods — connect Google / add password */}
           <Suspense
