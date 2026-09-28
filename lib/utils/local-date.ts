@@ -103,6 +103,52 @@ export function todayForUser(timeZone: string | null | undefined): string {
     : localDateStr();
 }
 
+// ─────────────────────────────────────────────────────────────
+// CALENDAR DAYS ↔ @db.Date COLUMNS
+// ─────────────────────────────────────────────────────────────
+// Prisma reads and writes a @db.Date column as a JS Date at UTC midnight.
+// These two helpers are the only sanctioned way across that boundary, so a
+// user's calendar day ("2026-10-01") is stored as exactly that day — never as
+// whatever day the server's clock or timezone happens to produce.
+
+/** "YYYY-MM-DD" → the UTC-midnight Date Prisma expects for a @db.Date. */
+export function calendarDayToDbDate(day: string): Date {
+  return new Date(`${day}T00:00:00Z`);
+}
+
+/**
+ * A @db.Date value (UTC-midnight Date) → "YYYY-MM-DD".
+ * toISOString is correct HERE: the value is a calendar date the driver
+ * anchored to UTC midnight, not a wall-clock instant.
+ */
+export function dbDateToCalendarDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Whole years of age on `today`, for someone born on `dateOfBirth`.
+ * Both are "YYYY-MM-DD" calendar days — pure integer math, no Date objects.
+ *
+ * WHY NOT new Date(dateOfBirth).getDate()? "1998-05-10" parses as UTC
+ * midnight, so in any zone west of UTC getDate() returns the 9th, and on the
+ * server "today" is the UTC day, not the user's. Either shift moves the
+ * birthday by a day, and someone is a year younger for that day.
+ *
+ * A Feb 29 birthday counts from Mar 1 in non-leap years.
+ */
+export function ageOn(dateOfBirth: string, today: string): number {
+  const dob = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateOfBirth);
+  const now = /^(\d{4})-(\d{2})-(\d{2})/.exec(today);
+  if (!dob || !now) {
+    throw new RangeError(`ageOn expects YYYY-MM-DD, got "${dateOfBirth}" / "${today}"`);
+  }
+  const [by, bm, bd] = dob.slice(1).map(Number);
+  const [ty, tm, td] = now.slice(1).map(Number);
+  let age = ty - by;
+  if (tm < bm || (tm === bm && td < bd)) age--;
+  return age;
+}
+
 /**
  * The zone this device reports, or undefined if the runtime can't say.
  * Browser-side use: onboarding submit and the timezone sync.

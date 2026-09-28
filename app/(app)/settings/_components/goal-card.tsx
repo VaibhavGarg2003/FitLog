@@ -7,7 +7,9 @@
  * Shows the user's active weight goal (target weight + date) and lets them
  * set / change / remove it. Reads `activeGoal` from the profile query (added
  * to GET /api/profile), writes via POST/DELETE /api/goals, then invalidates
- * the profile cache so the Dashboard goal card updates too.
+ * the profile cache so the Dashboard goal card updates too. The route also
+ * recalculates the calorie targets for the new goal, so the same refetch
+ * refreshes the "Current Targets" card.
  *
  * "No goal" is a first-class state — a user who skipped a target in onboarding
  * lands here to set one whenever they like.
@@ -17,6 +19,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProfile } from "@/lib/hooks/use-profile";
 import { cn } from "@/lib/utils/cn";
+import { deviceTimeZone } from "@/lib/utils/local-date";
 
 export function GoalCard() {
   const { data: profile } = useProfile();
@@ -62,6 +65,9 @@ export function GoalCard() {
           startValue: currentWeight ?? targetNum,
           targetValue: targetNum,
           timelineMonths: parseInt(months) || 4,
+          // Dates the goal and the target-history row on this user's
+          // calendar if their timezone has not been saved yet.
+          timezone: deviceTimeZone(),
         }),
       });
       if (!res.ok) throw new Error();
@@ -77,7 +83,11 @@ export function GoalCard() {
   async function remove() {
     setBusy(true);
     try {
-      const res = await fetch("/api/goals", { method: "DELETE" });
+      const res = await fetch("/api/goals", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timezone: deviceTimeZone() }),
+      });
       if (!res.ok) throw new Error();
       await queryClient.invalidateQueries({ queryKey: ["profile"] });
       setEditing(false);

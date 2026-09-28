@@ -229,10 +229,11 @@ model ExerciseSet {
   // Which set this is (1st, 2nd, 3rd...). For ordering within an exercise.
 
   weight      Float?
-  // Numeric load exactly as the user confirmed it. The UI labels and
-  // interprets it as kg, and nothing converts units — so it is not
-  // guaranteed kg: AI-parsed "lb" input is currently stored without
-  // conversion (the importer warns first; see ai-workout.service.ts).
+  // kg. The UI labels and interprets it as kg, and the AI importer converts
+  // pound input to kg before the review screen (ai-workout.service.ts, only
+  // when the user's text says lb). Sets imported before that fix
+  // (2026-09-28) may hold unconverted pounds; unlabelled numbers typed as kg
+  // are stored as typed.
   reps        Int?
   rpe         Int?     // Per-set RPE (optional, Live Mode only)
 

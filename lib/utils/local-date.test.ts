@@ -9,7 +9,49 @@ import {
   localDateStrInZone,
   todayForUser,
   localDateStr,
+  ageOn,
+  calendarDayToDbDate,
+  dbDateToCalendarDay,
 } from "@/lib/utils/local-date";
+
+describe("ageOn", () => {
+  it("counts whole years, turning a year older ON the birthday", () => {
+    expect(ageOn("1998-05-10", "2026-05-09")).toBe(27);
+    expect(ageOn("1998-05-10", "2026-05-10")).toBe(28);
+    expect(ageOn("1998-05-10", "2026-12-31")).toBe(28);
+  });
+
+  it("uses the USER'S day — the server's UTC day can be a day behind", () => {
+    // 00:30 on the birthday in India is still the day before in UTC.
+    const instant = new Date("2026-05-09T19:00:00Z");
+    expect(ageOn("1998-05-10", localDateStrInZone("Asia/Kolkata", instant))).toBe(28);
+    expect(ageOn("1998-05-10", localDateStrInZone("UTC", instant))).toBe(27);
+  });
+
+  it("does not shift the birthday for zones west of UTC", () => {
+    // new Date("1998-05-10").getDate() is 9 in Los Angeles; this must not care.
+    const instant = new Date("2026-05-10T18:00:00Z"); // 11:00 May 10 in LA
+    expect(ageOn("1998-05-10", localDateStrInZone("America/Los_Angeles", instant))).toBe(28);
+  });
+
+  it("counts a Feb 29 birthday from Mar 1 in non-leap years", () => {
+    expect(ageOn("2000-02-29", "2027-02-28")).toBe(26);
+    expect(ageOn("2000-02-29", "2027-03-01")).toBe(27);
+    expect(ageOn("2000-02-29", "2028-02-29")).toBe(28);
+  });
+
+  it("rejects anything that is not YYYY-MM-DD", () => {
+    expect(() => ageOn("10/05/1998", "2026-05-10")).toThrow(RangeError);
+  });
+});
+
+describe("calendar day ↔ @db.Date", () => {
+  it("round-trips a calendar day through the UTC-midnight Date Prisma uses", () => {
+    const d = calendarDayToDbDate("2026-10-01");
+    expect(d.toISOString()).toBe("2026-10-01T00:00:00.000Z");
+    expect(dbDateToCalendarDay(d)).toBe("2026-10-01");
+  });
+});
 
 describe("isValidTimeZone", () => {
   it("accepts canonical IANA zones", () => {

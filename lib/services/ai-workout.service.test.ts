@@ -789,3 +789,137 @@ describe("parseWorkoutText — cardio", () => {
     expect(draft.exercises[0].needsReview).toBe(true);
   });
 });
+
+describe("parseWorkoutText — pounds are converted to kg", () => {
+  it("converts an lb line to kg, says so, and forces a review", async () => {
+    mockAiReply({
+      exercises: [
+        {
+          inputName: "bench press",
+          quote: "bench",
+          catalogName: "Barbell Bench Press",
+          unit: "lb",
+          repeat: { count: 3, reps: 5, weight: 225 },
+        },
+      ],
+    });
+
+    const draft = await parseWorkoutText("bench 225 lbs 3x5");
+    const line = draft.exercises[0];
+
+    // 225 × 0.45359237 = 102.058… → 102.1 kg, never 225 "kg".
+    expect(line.sets.map((s) => s.weight)).toEqual([102.1, 102.1, 102.1]);
+    expect(line.unit).toBe("lb");
+    expect(line.needsReview).toBe(true);
+    expect(line.warnings.join(" ")).toContain("Converted from lbs: 225 lb → 102.1 kg");
+    // The numbers-near-the-name check ran on "225" as typed, not on 102.1.
+    expect(line.warnings.join(" ")).not.toMatch(/not next to/);
+  });
+
+  it("converts a ramp set by set and lists each conversion", async () => {
+    mockAiReply({
+      exercises: [
+        {
+          inputName: "squat",
+          quote: "squat",
+          catalogName: "Barbell Back Squat",
+          unit: "lb",
+          sets: [
+            { weight: 135, reps: 10 },
+            { weight: 185, reps: 8 },
+            { weight: 225, reps: 5 },
+          ],
+        },
+      ],
+    });
+
+    const draft = await parseWorkoutText("squat 135x10 185x8 225x5 lbs");
+    const line = draft.exercises[0];
+
+    expect(line.sets.map((s) => s.weight)).toEqual([61.2, 83.9, 102.1]);
+    expect(line.warnings.join(" ")).toContain(
+      "135 lb → 61.2 kg, 185 lb → 83.9 kg, 225 lb → 102.1 kg"
+    );
+  });
+
+  it("recognises a unit glued to the number (225lbs) and the word pounds", async () => {
+    for (const text of ["bench 225lbs 3x5", "bench 225 pounds 3x5"]) {
+      mockAiReply({
+        exercises: [
+          {
+            inputName: "bench press",
+            quote: "bench",
+            catalogName: "Barbell Bench Press",
+            unit: "lb",
+            repeat: { count: 3, reps: 5, weight: 225 },
+          },
+        ],
+      });
+      const draft = await parseWorkoutText(text);
+      expect(draft.exercises[0].sets[0].weight).toBe(102.1);
+    }
+  });
+
+  it("does NOT convert when the model says lb but the text never does", async () => {
+    // A hallucinated unit must not silently shrink a kg workout by 2.2×.
+    mockAiReply({
+      exercises: [
+        {
+          inputName: "bench press",
+          quote: "bench",
+          catalogName: "Barbell Bench Press",
+          unit: "lb",
+          repeat: { count: 3, reps: 5, weight: 100 },
+        },
+      ],
+    });
+
+    const draft = await parseWorkoutText("bench 100 3x5, elbow a bit sore");
+    const line = draft.exercises[0];
+
+    // "elbow" contains "lb" inside a word — that is not a pound unit.
+    expect(line.sets[0].weight).toBe(100);
+    expect(line.unit).toBe("kg");
+    expect(line.needsReview).toBe(true);
+    expect(line.warnings.join(" ")).toMatch(/doesn't say lbs — kept as kg/);
+  });
+
+  it("leaves bodyweight sets (no weight) untouched", async () => {
+    mockAiReply({
+      exercises: [
+        {
+          inputName: "pull ups",
+          quote: "pull ups",
+          catalogName: "Pull-Up",
+          unit: "lb",
+          repeat: { count: 3, reps: 10 },
+        },
+      ],
+    });
+
+    const draft = await parseWorkoutText("pull ups 3x10, then 45 lb plate work");
+    expect(draft.exercises[0].sets.every((s) => s.weight === null)).toBe(true);
+    // No weight → no unit warning, so the line is not forced into review.
+    expect(draft.exercises[0].warnings.join(" ")).not.toMatch(/lbs/);
+  });
+
+  it("still flags an unlabelled three-digit number without converting it", async () => {
+    mockAiReply({
+      exercises: [
+        {
+          inputName: "bench press",
+          quote: "bench",
+          catalogName: "Barbell Bench Press",
+          unit: "kg",
+          repeat: { count: 3, reps: 5, weight: 275 },
+        },
+      ],
+    });
+
+    const draft = await parseWorkoutText("bench 275 3x5");
+    const line = draft.exercises[0];
+
+    expect(line.sets[0].weight).toBe(275);
+    expect(line.warnings.join(" ")).toMatch(/looks high for kg — was it lbs/);
+  });
+});
