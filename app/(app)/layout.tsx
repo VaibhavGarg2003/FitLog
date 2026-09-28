@@ -30,6 +30,9 @@ import { getAppShellProfile } from "@/lib/repositories/profile.repository";
 import { TopNav } from "@/components/shared/top-nav";
 import { BottomNav } from "@/components/shared/bottom-nav";
 import { TimezoneSync } from "@/components/shared/timezone-sync";
+import { TimezoneProvider } from "@/components/shared/timezone-provider";
+import { TimezonePrompt } from "@/components/shared/timezone-prompt";
+import { todayForUser } from "@/lib/utils/local-date";
 import { OutboxProvider } from "@/lib/offline/outbox-provider";
 import { OfflineBanner } from "@/components/pwa/offline-banner";
 
@@ -57,7 +60,13 @@ export default async function AppLayout({
     // Page components use grids inside this full-width main.
     // OutboxProvider: queued offline sets for THIS user, synced in the
     // background on every app page (see lib/offline/outbox-provider.tsx).
+    // TimezoneProvider: the saved time zone is the ONE calendar the app runs
+    // on — "today" everywhere comes from it (components/shared/timezone-provider).
     <OutboxProvider userId={userId}>
+      <TimezoneProvider
+        savedTimeZone={shell.timezone}
+        initialToday={todayForUser(shell.timezone)}
+      >
       <div className="w-full min-h-dvh bg-background flex flex-col">
         {/* Desktop nav + mobile logo/home bar (responsive; see top-nav.tsx) */}
         <TopNav />
@@ -69,7 +78,9 @@ export default async function AppLayout({
         </main>
         <BottomNav />
         <TimezoneSync savedTimeZone={shell.timezone} />
+        <TimezonePrompt userId={userId} />
       </div>
+      </TimezoneProvider>
     </OutboxProvider>
   );
 }

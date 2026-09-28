@@ -15,7 +15,7 @@ import {
   getWorkoutsByDate,
 } from "@/lib/services/workout.service";
 import { startWorkoutSchema } from "@/lib/validators/api.schema";
-import { localDateStr } from "@/lib/utils/local-date";
+import { userToday } from "@/lib/services/user-calendar.service";
 import { handleRouteError } from "@/lib/utils/errors";
 import { isExpectedUserMismatch } from "@/lib/utils/expected-user";
 
@@ -50,9 +50,9 @@ export async function POST(request: NextRequest) {
     }
 
     const session = await startSession(userId, {
-      // Client normally sends its local date; localDateStr() is the fallback
-      // (never toISOString — that's the UTC midnight bug, CONTEXT.md).
-      date: parsed.data.date ?? localDateStr(),
+      // Client normally sends the app's day; the fallback is the user's day in
+      // their saved zone — never the server's UTC day.
+      date: parsed.data.date ?? (await userToday(userId)),
       mode: parsed.data.mode,
       splitType: parsed.data.splitType,
     });
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const date = searchParams.get("date") || localDateStr();
+    const date = searchParams.get("date") || (await userToday(userId));
 
     const sessions = await getWorkoutsByDate(userId, date);
     return NextResponse.json(sessions);

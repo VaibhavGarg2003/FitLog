@@ -253,6 +253,37 @@ export async function fillTimezoneIfUnset(
 }
 
 /**
+ * Replace the timezone ONLY if it still equals `expected` — atomically.
+ *
+ * The deliberate-change path (the "you moved" prompt, the Settings picker).
+ * The screen that offered the change knew a zone; if another device changed
+ * it since, the WHERE clause matches nothing and the caller gets "conflict"
+ * instead of silently overwriting the newer choice.
+ */
+export async function replaceTimezoneIf(
+  userId: string,
+  timezone: string,
+  expected: string | null
+): Promise<"updated" | "conflict" | "no-profile"> {
+  const res = await prisma.profile.updateMany({
+    where: { userId, timezone: expected },
+    data: { timezone },
+  });
+  if (res.count > 0) return "updated";
+  const exists = await prisma.profile.count({ where: { userId } });
+  return exists > 0 ? "conflict" : "no-profile";
+}
+
+/** The account's saved timezone (null if none yet or no profile). */
+export async function getUserTimezone(userId: string): Promise<string | null> {
+  const profile = await prisma.profile.findUnique({
+    where: { userId },
+    select: { timezone: true },
+  });
+  return profile?.timezone ?? null;
+}
+
+/**
  * What the authenticated app shell needs on every full page load, in ONE
  * lightweight query: the onboarding guard plus the stored timezone the
  * client-side sync compares against.

@@ -21,36 +21,36 @@
  */
 
 import { useUIStore } from "@/stores/ui-store";
-import { localDateStr } from "@/lib/utils/local-date";
+import { useUserToday } from "@/components/shared/timezone-provider";
+import { addDays } from "@/lib/insights/fill-days";
+import { weekdayShort } from "@/lib/utils/local-date";
 import { cn } from "@/lib/utils/cn";
 
 export function DateStrip() {
   const selectedDate = useUIStore((s) => s.selectedDate);
   const setSelectedDate = useUIStore((s) => s.setSelectedDate);
 
-  const today = localDateStr();
+  // "Today" on the account's calendar (saved time zone), not the device clock.
+  // Every day below is a "YYYY-MM-DD" string built from it with calendar
+  // arithmetic, and labelled from the string — a device in another zone can't
+  // shift a day or its weekday.
+  const today = useUserToday();
 
   // TEMPORARY (weekly-insights testing): last 6 days + today = 7 loggable days.
-  // Revert to the centered layout below when done testing.
-  //   const d = new Date(); d.setDate(d.getDate() + (i - 3)); // 3 before, today, 3 after
-  const dates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + (i - 6)); // i=0 → -6 days, i=6 → today
-    return d;
-  });
+  // Revert to the centered layout when done testing: addDays(today, i - 3).
+  const dates = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
 
   const isViewingPast = selectedDate < today;
 
   return (
     <div className="space-y-2">
       <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide lg:overflow-visible lg:mx-0 lg:px-0 lg:pb-0">
-        {dates.map((date) => {
-          const dateStr = localDateStr(date);
+        {dates.map((dateStr) => {
           const isSelected = dateStr === selectedDate;
           const isToday = dateStr === today;
           const isFuture = dateStr > today;
-          const dayName = date.toLocaleDateString("en-US", { weekday: "short" });
-          const dayNum = date.getDate();
+          const dayName = weekdayShort(dateStr);
+          const dayNum = Number(dateStr.slice(8, 10));
 
           return (
             <button

@@ -98,9 +98,13 @@ export function OnboardingShell({ userId }: { userId: string }) {
       const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // timezone rides alongside the form, not inside it: it is detected, not
-        // asked, so it never enters the persisted wizard store.
-        body: JSON.stringify({ ...validation.data, timezone: deviceTimeZone() }),
+        // The zone the user saw in Step 1: their correction if they made one,
+        // otherwise this device's detected zone (never stored in the wizard
+        // until changed, so a later device's detection still applies).
+        body: JSON.stringify({
+          ...validation.data,
+          timezone: validation.data.timezone ?? deviceTimeZone(),
+        }),
       });
 
       if (!res.ok) {

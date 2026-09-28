@@ -342,3 +342,13 @@ describe("onboarding dateOfBirth", () => {
     expect(step1Schema.safeParse({ ...base, dateOfBirth: "1998-05-10T00:00:00Z" }).success).toBe(false);
   });
 });
+
+describe("onboarding timezone (Step 1)", () => {
+  it("is optional, and validated when given", async () => {
+    const { step1Schema } = await import("@/lib/validators/onboarding.schema");
+    const base = { name: "Aman", sex: "MALE" as const, dateOfBirth: "1998-05-10" };
+    expect(step1Schema.safeParse(base).success).toBe(true);
+    expect(step1Schema.safeParse({ ...base, timezone: "Asia/Kolkata" }).success).toBe(true);
+    expect(step1Schema.safeParse({ ...base, timezone: "+05:30" }).success).toBe(false);
+  });
+});

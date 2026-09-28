@@ -229,17 +229,26 @@ export const updatePreferencesSchema = z
     timezone: timezoneSchema.optional(),
     // true → write the timezone ONLY if the account has none yet. The
     // background sync uses this so a stale request from a second device can
-    // never replace a zone that is already stored. Omitted → a deliberate set.
+    // never replace a zone that is already stored.
     onlyIfUnset: z.boolean().optional(),
+    // Compare-and-set for a deliberate change (the "you moved" prompt and the
+    // Settings picker): replace the zone ONLY if it is still the one the user
+    // was looking at (null = none stored). A screen that is out of date gets a
+    // 409 instead of overwriting a newer choice made on another device.
+    expectedTimezone: z.union([timezoneSchema, z.null()]).optional(),
   })
   .refine(
-    // onlyIfUnset is a write mode, not a preference.
+    // onlyIfUnset and expectedTimezone are write modes, not preferences.
     (data) =>
       Object.entries(data).some(
-        ([key, v]) => key !== "onlyIfUnset" && v !== undefined
+        ([key, v]) =>
+          key !== "onlyIfUnset" && key !== "expectedTimezone" && v !== undefined
       ),
     { message: "At least one preference must be provided" }
-  );
+  )
+  .refine((data) => !(data.onlyIfUnset && data.expectedTimezone !== undefined), {
+    message: "Use onlyIfUnset or expectedTimezone, not both",
+  });
 
 // ─── POST /api/share — create a share link for a template ────
 // `kind` is fixed server-side (WORKOUT_TEMPLATE), never taken from the body.

@@ -28,6 +28,7 @@
  */
 
 import { z } from "zod";
+import { isValidTimeZone } from "@/lib/utils/local-date";
 
 // ── Step 1: Identity ─────────────────────────────
 export const step1Schema = z.object({
@@ -49,6 +50,14 @@ export const step1Schema = z.object({
       return age >= 13 && age <= 120;
     }, "You must be between 13 and 120 years old"),
   sex: z.enum(["MALE", "FEMALE"]),
+  // The user's time zone. Pre-filled from the device and shown so it can be
+  // corrected; absent until the user changes it (the device's zone is used).
+  // Asked in Step 1 because the Step 4 preview computes age on this zone's day.
+  timezone: z
+    .string()
+    .max(64)
+    .refine(isValidTimeZone, { message: "Pick a time zone from the list" })
+    .optional(),
 });
 
 // ── Step 2: Body Measurements ────────────────────

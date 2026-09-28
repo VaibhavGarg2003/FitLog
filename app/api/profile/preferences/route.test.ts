@@ -9,11 +9,13 @@ import { NextRequest } from "next/server";
 const getAuthUserId = vi.hoisted(() => vi.fn());
 const fillTimezoneIfUnset = vi.hoisted(() => vi.fn());
 const updatePreferences = vi.hoisted(() => vi.fn());
+const replaceTimezoneIf = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/supabase/server", () => ({ getAuthUserId }));
 vi.mock("@/lib/repositories/profile.repository", () => ({
   fillTimezoneIfUnset,
   updatePreferences,
+  replaceTimezoneIf,
 }));
 
 import { PATCH } from "@/app/api/profile/preferences/route";
@@ -73,5 +75,39 @@ describe("PATCH /api/profile/preferences", () => {
     expect((await PATCH(req({ timezone: "UTC" }))).status).toBe(401);
     expect(fillTimezoneIfUnset).not.toHaveBeenCalled();
     expect(updatePreferences).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH /api/profile/preferences — compare-and-set (expectedTimezone)", () => {
+  it("replaces the zone when it is still the one the user saw", async () => {
+    replaceTimezoneIf.mockResolvedValue("updated");
+    const res = await PATCH(req({ timezone: "America/Toronto", expectedTimezone: "Asia/Kolkata" }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, applied: true });
+    expect(replaceTimezoneIf).toHaveBeenCalledWith("u1", "America/Toronto", "Asia/Kolkata");
+    expect(updatePreferences).not.toHaveBeenCalled();
+    expect(fillTimezoneIfUnset).not.toHaveBeenCalled();
+  });
+
+  it("answers 409 when another device changed it meanwhile", async () => {
+    replaceTimezoneIf.mockResolvedValue("conflict");
+    const res = await PATCH(req({ timezone: "America/Toronto", expectedTimezone: "Asia/Kolkata" }));
+    expect(res.status).toBe(409);
+  });
+
+  it("accepts expectedTimezone null (no zone stored yet)", async () => {
+    replaceTimezoneIf.mockResolvedValue("updated");
+    await PATCH(req({ timezone: "Asia/Kolkata", expectedTimezone: null }));
+    expect(replaceTimezoneIf).toHaveBeenCalledWith("u1", "Asia/Kolkata", null);
+  });
+
+  it("returns 404 with no profile, and rejects mixing the two modes", async () => {
+    replaceTimezoneIf.mockResolvedValue("no-profile");
+    expect((await PATCH(req({ timezone: "UTC", expectedTimezone: "Asia/Kolkata" }))).status).toBe(404);
+    expect(
+      (await PATCH(req({ timezone: "UTC", expectedTimezone: "Asia/Kolkata", onlyIfUnset: true }))).status
+    ).toBe(400);
+    expect((await PATCH(req({ expectedTimezone: "Asia/Kolkata" }))).status).toBe(400);
   });
 });

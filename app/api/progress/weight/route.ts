@@ -14,7 +14,7 @@ import {
   getProgressData,
 } from "@/lib/services/progress.service";
 import { logWeightSchema } from "@/lib/validators/api.schema";
-import { localDateStr } from "@/lib/utils/local-date";
+import { userToday } from "@/lib/services/user-calendar.service";
 import { handleRouteError } from "@/lib/utils/errors";
 
 export async function POST(request: NextRequest) {
@@ -43,9 +43,10 @@ export async function POST(request: NextRequest) {
     }
 
     const log = await recordWeight(userId, {
-      // Client normally sends its local date; localDateStr() is the fallback
-      // (never toISOString — that's the UTC midnight bug, CONTEXT.md).
-      date: parsed.data.date ?? localDateStr(),
+      // Client normally sends the app's day; the fallback is the user's day in
+      // their saved zone — never the server's UTC day (a 1 AM weigh-in in
+      // India would land on yesterday).
+      date: parsed.data.date ?? (await userToday(userId)),
       weightKg: parsed.data.weightKg,
       notes: parsed.data.notes,
     });

@@ -149,6 +149,125 @@ export function ageOn(dateOfBirth: string, today: string): number {
   return age;
 }
 
+// ─────────────────────────────────────────────────────────────
+// COMPARING AND NAMING ZONES
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Renamed IANA zones: legacy name → current name. Runtimes disagree on which
+ * one they report — Node/ICU says "Asia/Calcutta", recent Chrome says
+ * "Asia/Kolkata" — so every comparison goes through this table, or an Indian
+ * user would be told their time zone "changed" when it did not.
+ */
+const RENAMED_ZONES: Record<string, string> = {
+  "Asia/Calcutta": "Asia/Kolkata",
+  "Asia/Saigon": "Asia/Ho_Chi_Minh",
+  "Asia/Katmandu": "Asia/Kathmandu",
+  "Asia/Rangoon": "Asia/Yangon",
+  "Asia/Dacca": "Asia/Dhaka",
+  "Asia/Thimbu": "Asia/Thimphu",
+  "Asia/Ulan_Bator": "Asia/Ulaanbaatar",
+  "Asia/Macao": "Asia/Macau",
+  "Asia/Chungking": "Asia/Chongqing",
+  "Asia/Ujung_Pandang": "Asia/Makassar",
+  "Europe/Kiev": "Europe/Kyiv",
+  "Europe/Uzhgorod": "Europe/Kyiv",
+  "Europe/Zaporozhye": "Europe/Kyiv",
+  "Atlantic/Faeroe": "Atlantic/Faroe",
+  "America/Godthab": "America/Nuuk",
+  "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+  "America/Indianapolis": "America/Indiana/Indianapolis",
+  "America/Louisville": "America/Kentucky/Louisville",
+  "Pacific/Truk": "Pacific/Chuuk",
+  "Pacific/Ponape": "Pacific/Pohnpei",
+  "Pacific/Enderbury": "Pacific/Kanton",
+  "Africa/Asmera": "Africa/Asmara",
+  "Etc/UTC": "UTC",
+  "Etc/GMT": "UTC",
+  "GMT": "UTC",
+};
+
+/**
+ * One stable name per real zone, so two spellings of the same place compare
+ * equal. The runtime folds most aliases ("US/Eastern" → "America/New_York");
+ * RENAMED_ZONES then settles the renames runtimes disagree about. Different
+ * places stay different even when their clocks currently agree (never compare
+ * by UTC offset: London and Lagos match in winter, not in summer).
+ */
+export function canonicalTimeZone(tz: string): string {
+  let resolved = tz;
+  try {
+    resolved = new Intl.DateTimeFormat("en-US", { timeZone: tz }).resolvedOptions().timeZone;
+  } catch {
+    // Unknown to this runtime — compare the raw name.
+  }
+  return RENAMED_ZONES[resolved] ?? resolved;
+}
+
+/** True when two zone names mean the same place. */
+export function sameTimeZone(a: string, b: string): boolean {
+  return a === b || canonicalTimeZone(a) === canonicalTimeZone(b);
+}
+
+/**
+ * "Kolkata · GMT+5:30" — city from the current name plus today's offset.
+ * The offset is display only; it moves with DST.
+ */
+export function timeZoneLabel(tz: string, now: Date = new Date()): string {
+  const name = canonicalTimeZone(tz);
+  const city = (name.split("/").pop() ?? name).replace(/_/g, " ");
+  let offset = "";
+  try {
+    offset =
+      new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" })
+        .formatToParts(now)
+        .find((p) => p.type === "timeZoneName")?.value ?? "";
+  } catch {
+    // Offset is decoration; a zone this runtime can't format just omits it.
+  }
+  return offset ? `${city} · ${offset}` : city;
+}
+
+/**
+ * Every zone this runtime knows, one entry per real place, sorted by name,
+ * always including `alsoInclude` (a stored or detected zone the runtime's list
+ * may spell differently).
+ */
+export function listTimeZones(alsoInclude: Array<string | null | undefined> = []): string[] {
+  let all: string[] = [];
+  try {
+    all = (Intl as unknown as { supportedValuesOf(key: "timeZone"): string[] })
+      .supportedValuesOf("timeZone");
+  } catch {
+    all = [];
+  }
+  const seen = new Set<string>();
+  const zones: string[] = [];
+  // "UTC" is valid everywhere but absent from supportedValuesOf() in every
+  // current runtime — seed it so it can be chosen deliberately.
+  for (const tz of ["UTC", ...all, ...alsoInclude]) {
+    if (!tz || !isValidTimeZone(tz)) continue;
+    const key = canonicalTimeZone(tz);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // Store the current spelling when this runtime accepts it.
+    zones.push(isValidTimeZone(key) ? key : tz);
+  }
+  return zones.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Short weekday ("Mon") for a "YYYY-MM-DD" calendar day. Computed on the
+ * UTC-anchored date with timeZone "UTC", so it names THAT calendar day no
+ * matter where the device is.
+ */
+export function weekdayShort(day: string): string {
+  return calendarDayToDbDate(day).toLocaleDateString("en-US", {
+    weekday: "short",
+    timeZone: "UTC",
+  });
+}
+
 /**
  * The zone this device reports, or undefined if the runtime can't say.
  * Browser-side use: onboarding submit and the timezone sync.

@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { getDailyTotals, getMealsForDate } from "@/lib/services/nutrition.service";
 import { handleRouteError } from "@/lib/utils/errors";
+import { userToday } from "@/lib/services/user-calendar.service";
 
 export async function GET(request: NextRequest) {
   try {
@@ -30,7 +31,9 @@ export async function GET(request: NextRequest) {
 
     // 2. Get date and mode from query params
     const { searchParams } = new URL(request.url);
-    const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
+    // Fallback: the user's day in their saved zone. (Was the server's UTC day
+    // via toISOString — the banned midnight bug, CONTEXT.md.)
+    const date = searchParams.get("date") || (await userToday(userId));
     const full = searchParams.get("full") === "true";
 
     // 3. Return full meal entries (nutrition page) or just totals (dashboard)

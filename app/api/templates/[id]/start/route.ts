@@ -11,7 +11,7 @@ import { z } from "zod";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { startSessionFromTemplate } from "@/lib/services/template.service";
 import { startFromTemplateSchema } from "@/lib/validators/api.schema";
-import { localDateStr } from "@/lib/utils/local-date";
+import { userToday } from "@/lib/services/user-calendar.service";
 import { handleRouteError } from "@/lib/utils/errors";
 
 export async function POST(
@@ -48,7 +48,7 @@ export async function POST(
     const result = await startSessionFromTemplate(
       userId,
       id,
-      parsed.data.date ?? localDateStr()
+      parsed.data.date ?? (await userToday(userId))
     );
 
     return NextResponse.json(result, { status: 201 });

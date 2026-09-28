@@ -34,6 +34,7 @@ import {
 } from "@/lib/services/ai.service";
 import { checkInsightLimit } from "@/lib/middleware/rate-limit";
 import { handleRouteError } from "@/lib/utils/errors";
+import { userToday } from "@/lib/services/user-calendar.service";
 
 /**
  * Extract the client's local date ("YYYY-MM-DD") from ?date=.
@@ -57,7 +58,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const cached = await getCachedWeeklyInsight(userId, getClientDate(request));
+    // No ?date= → the user's day in their saved zone, never the server's.
+    const date = getClientDate(request) ?? (await userToday(userId));
+    const cached = await getCachedWeeklyInsight(userId, date);
     if (cached) {
       return NextResponse.json({ generated: true, ...cached });
     }
@@ -85,9 +88,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const clientDate = getClientDate(request);
-
+  let clientDate: string;
   try {
+    // No ?date= → the user's day in their saved zone, never the server's.
+    clientDate = getClientDate(request) ?? (await userToday(userId));
     const cached = await getCachedWeeklyInsight(userId, clientDate);
     if (cached) {
       return NextResponse.json({ generated: true, ...cached });
