@@ -68,7 +68,13 @@ export async function loadInsightUser(userId: string): Promise<InsightUser> {
     insightPlan: profile.insightPlan,
     ctx: {
       goal: goal
-        ? { type: goal.type, targetValue: goal.targetValue, targetDate: dbDateToCalendarDay(goal.targetDate) }
+        ? {
+            type: goal.type,
+            startValue: goal.startValue,
+            startDate: dbDateToCalendarDay(goal.startDate),
+            targetValue: goal.targetValue,
+            targetDate: dbDateToCalendarDay(goal.targetDate),
+          }
         : null,
       fitnessGoal: profile.goal,
       strictness: profile.strictness,

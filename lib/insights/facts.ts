@@ -21,7 +21,7 @@
 
 import { addDays, daysBetween, listDays } from "@/lib/insights/fill-days";
 import { periodBounds, type PeriodType } from "@/lib/insights/periods";
-import { summarizeWeight, type WeightPoint } from "@/lib/insights/trend";
+import { smoothedTrend, summarizeWeight, type WeightPoint } from "@/lib/insights/trend";
 import { strengthDirection, topLifts, type StrengthSet } from "@/lib/insights/strength";
 
 // ─────────────────────────────────────────────────────────────
@@ -44,7 +44,14 @@ export interface PeriodRows {
 }
 
 export interface FactsContext {
-  goal: { type: string; targetValue: number; targetDate: string } | null;
+  /** The weight goal in force (start → target), for the pace check. */
+  goal: {
+    type: string;
+    startValue: number;
+    startDate: string;
+    targetValue: number;
+    targetDate: string;
+  } | null;
   fitnessGoal: string | null;
   strictness: string;
   dietaryType: string | null;
@@ -82,6 +89,16 @@ export interface PeriodFacts {
     daysOnCalorieTarget: number;
     /** Logged days reaching ≥90% of that day's protein target. */
     daysProteinHit: number;
+    /** Logged days more than 10% under that day's calorie target. */
+    daysUnderTarget: number;
+    /** Logged days more than 10% over that day's calorie target. */
+    daysOverTarget: number;
+    /** Logged days more than 25% over target — cheat-day sized. */
+    daysWellOverTarget: number;
+    /** Σ (calories − target) on the over-target days. */
+    surplusKcalOnOverDays: number;
+    /** That surplus as body weight, at ~7,700 kcal per kg (an estimate). */
+    estimatedKgFromOverDays: number;
   };
   training: {
     workoutDays: number;
@@ -91,6 +108,12 @@ export interface PeriodFacts {
     volumeKg: number;
     topLifts: Array<{ name: string; sessions: number; firstE1rm: number; lastE1rm: number; changePct: number }>;
     direction: "UP" | "FLAT" | "DOWN" | null;
+    /** Workout days per 7 days of the period. */
+    avgWorkoutsPerWeek: number;
+    /** Full Mon–Sun weeks inside the period with no workout at all. */
+    weeksWithoutWorkout: number;
+    /** Longest run of consecutive days in the period without a workout. */
+    longestGapDays: number;
   };
   weight: {
     start: number | null;
@@ -107,14 +130,141 @@ export interface PeriodFacts {
     strength: "UP" | "FLAT" | "DOWN" | null;
   };
   goal: FactsContext["goal"];
+  /** Where the user is against the goal's plan line — see goalPace(). */
+  pace: GoalPace | null;
   profile: { fitnessGoal: string | null; strictness: string; dietaryType: string | null };
   breakdown: BreakdownRow[];
   previous: { avgCalories: number | null; workoutDays: number; weightChange: number | null } | null;
 }
 
+export interface GoalPace {
+  /**
+   * REACHED     at (or past) the target
+   * AHEAD       more than 0.5 kg ahead of the straight plan line
+   * ON_TRACK    within 0.5 kg of the plan line
+   * BEHIND      more than 0.5 kg behind the plan line, or past the goal date
+   * OFF_COURSE  the trend is moving AWAY from the target
+   * MAINTAINING (maintain goal) within 1.5 kg of the target
+   * DRIFTING    (maintain goal) more than 1.5 kg away
+   * UNKNOWN     not enough weigh-ins in the period to tell
+   */
+  status: "REACHED" | "AHEAD" | "ON_TRACK" | "BEHIND" | "OFF_COURSE" | "MAINTAINING" | "DRIFTING" | "UNKNOWN";
+  /** Smoothed weight at the end of the period. */
+  currentKg: number | null;
+  /** Where the straight line from start to target says they'd be by now. */
+  expectedKg: number | null;
+  /** currentKg − expectedKg, signed so that positive = behind. */
+  behindKg: number | null;
+  /** Still to go to the target (always ≥ 0). */
+  remainingKg: number | null;
+  targetDate: string;
+  /** At this period's rate, the day the target would be reached. */
+  projectedDate: string | null;
+  /** projectedDate − targetDate in days (positive = late). */
+  daysLate: number | null;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
+
+const KCAL_PER_KG = 7700;
+/** Beyond this a projection is meaningless ("at this pace: never"). */
+const MAX_PROJECTION_DAYS = 3 * 365;
+
+/**
+ * Pace against the goal, all in code: the plan is a straight line from
+ * (startDate, startValue) to (targetDate, targetValue); "now" is the
+ * smoothed weight at the end of the period; the projection extends this
+ * period's rate. The AI only reads these values.
+ */
+export function goalPace(
+  goal: FactsContext["goal"],
+  periodEnd: string,
+  trendEndKg: number | null,
+  ratePerWeek: number | null,
+  weighIns = 2
+): GoalPace | null {
+  // No goal, or one that only started after this period: nothing to judge.
+  if (!goal || periodEnd < goal.startDate) return null;
+  const base: GoalPace = {
+    status: "UNKNOWN",
+    currentKg: trendEndKg === null ? null : r1(trendEndKg),
+    expectedKg: null,
+    behindKg: null,
+    remainingKg: null,
+    targetDate: goal.targetDate,
+    projectedDate: null,
+    daysLate: null,
+  };
+  // One weigh-in is a data point, not a pace.
+  if (trendEndKg === null || weighIns < 2) return base;
+
+  const remaining = Math.abs(goal.targetValue - trendEndKg);
+  base.remainingKg = r1(remaining);
+
+  // A goal with no weight change to make is judged like maintenance.
+  if (goal.type === "MAINTAIN" || goal.targetValue === goal.startValue) {
+    return { ...base, status: remaining <= 1.5 ? "MAINTAINING" : "DRIFTING" };
+  }
+
+  // +1 for a gain goal, −1 for a loss goal.
+  const dir = Math.sign(goal.targetValue - goal.startValue);
+  const total = daysBetween(goal.startDate, goal.targetDate);
+  const elapsed = Math.min(Math.max(daysBetween(goal.startDate, periodEnd), 0), Math.max(total, 0));
+  const expected = total > 0 ? goal.startValue + ((goal.targetValue - goal.startValue) * elapsed) / total : goal.targetValue;
+  // Positive = behind the line: above it on a loss goal, below it on a gain.
+  const behind = (trendEndKg - expected) * -dir;
+  base.expectedKg = r1(expected);
+  base.behindKg = r1(behind);
+
+  if ((goal.targetValue - trendEndKg) * dir <= 0) return { ...base, remainingKg: 0, status: "REACHED" };
+
+  // Projection from this period's rate, when it points the right way.
+  const towards = ratePerWeek === null ? null : ratePerWeek * dir;
+  if (towards !== null && towards > 0.05) {
+    const days = Math.round((remaining / towards) * 7);
+    if (days <= MAX_PROJECTION_DAYS) {
+      base.projectedDate = addDays(periodEnd, days);
+      base.daysLate = daysBetween(goal.targetDate, base.projectedDate);
+    }
+  }
+  // Past the goal date and not there yet is behind, however close.
+  const overdue = periodEnd >= goal.targetDate;
+  const status: GoalPace["status"] =
+    towards !== null && towards < -0.1
+      ? "OFF_COURSE"
+      : overdue || behind > 0.5
+        ? "BEHIND"
+        : behind < -0.5
+          ? "AHEAD"
+          : "ON_TRACK";
+  return { ...base, status };
+}
+
+/** Full Mon–Sun weeks inside [start, end] with no workout day. */
+function weeksWithoutWorkout(start: string, end: string, workoutDays: Set<string>): number {
+  let count = 0;
+  let monday = periodBounds("WEEK", start).start;
+  if (monday < start) monday = addDays(monday, 7);
+  while (addDays(monday, 6) <= end) {
+    const empty = listDays(monday, addDays(monday, 6)).every((d) => !workoutDays.has(d));
+    if (empty) count++;
+    monday = addDays(monday, 7);
+  }
+  return count;
+}
+
+/** Longest run of consecutive days in [start, end] with no workout. */
+function longestGap(start: string, end: string, workoutDays: Set<string>): number {
+  let best = 0;
+  let run = 0;
+  for (const d of listDays(start, end)) {
+    run = workoutDays.has(d) ? 0 : run + 1;
+    best = Math.max(best, run);
+  }
+  return best;
+}
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 const r0 = (n: number | null) => (n === null ? null : Math.round(n));
@@ -195,6 +345,10 @@ export function buildFacts(
   let daysWithKnownTarget = 0;
   let daysOnCalorieTarget = 0;
   let daysProteinHit = 0;
+  let daysUnderTarget = 0;
+  let daysOverTarget = 0;
+  let daysWellOverTarget = 0;
+  let surplusKcalOnOverDays = 0;
   const targetCals: number[] = [];
   const targetProts: number[] = [];
   for (const n of food) {
@@ -205,12 +359,19 @@ export function buildFacts(
     targetProts.push(t.targetProtein);
     if (t.targetCalories > 0 && Math.abs(n.calories - t.targetCalories) <= t.targetCalories * 0.1) daysOnCalorieTarget++;
     if (t.targetProtein > 0 && n.protein >= t.targetProtein * 0.9) daysProteinHit++;
+    if (t.targetCalories > 0 && n.calories < t.targetCalories * 0.9) daysUnderTarget++;
+    if (t.targetCalories > 0 && n.calories > t.targetCalories * 1.1) {
+      daysOverTarget++;
+      surplusKcalOnOverDays += n.calories - t.targetCalories;
+      if (n.calories > t.targetCalories * 1.25) daysWellOverTarget++;
+    }
   }
 
   // ── Training ──
   const lifts = topLifts(sets);
   const direction = strengthDirection(lifts);
   const volumeKg = Math.round(sets.reduce((sum, s) => sum + s.weight * s.reps, 0));
+  const workoutSet = new Set(workoutDayList.map((x) => x.date));
 
   // ── Weight ──
   const w = summarizeWeight(weights);
@@ -221,6 +382,16 @@ export function buildFacts(
     : w.ratePerWeek !== null
       ? w.ratePerWeek <= -0.1 ? "DOWN" : w.ratePerWeek >= 0.1 ? "UP" : "STEADY"
       : w.change <= -0.5 ? "DOWN" : w.change >= 0.5 ? "UP" : "STEADY";
+
+  // ── Pace against the goal (smoothed end weight, this period's rate) ──
+  const trendPoints = smoothedTrend(weights);
+  const pace = goalPace(
+    ctx.goal,
+    period.end,
+    trendPoints.length ? trendPoints[trendPoints.length - 1].trendKg : null,
+    w?.ratePerWeek ?? null,
+    weights.length
+  );
 
   // ── Breakdown ──
   const breakdown: BreakdownRow[] = bucketsFor(period.start, period.end).map((b) => {
@@ -270,6 +441,11 @@ export function buildFacts(
       daysWithKnownTarget,
       daysOnCalorieTarget,
       daysProteinHit,
+      daysUnderTarget,
+      daysOverTarget,
+      daysWellOverTarget,
+      surplusKcalOnOverDays: Math.round(surplusKcalOnOverDays),
+      estimatedKgFromOverDays: r1(surplusKcalOnOverDays / KCAL_PER_KG) ?? 0,
     },
     training: {
       workoutDays: workoutDayList.length,
@@ -284,6 +460,9 @@ export function buildFacts(
         changePct: l.changePct,
       })),
       direction,
+      avgWorkoutsPerWeek: r1((workoutDayList.length / days) * 7) ?? 0,
+      weeksWithoutWorkout: weeksWithoutWorkout(period.start, period.end, workoutSet),
+      longestGapDays: longestGap(period.start, period.end, workoutSet),
     },
     weight: {
       start: w?.start ?? null,
@@ -299,6 +478,7 @@ export function buildFacts(
     },
     pattern: { weight: weightPattern, strength: direction },
     goal: ctx.goal,
+    pace,
     profile: { fitnessGoal: ctx.fitnessGoal, strictness: ctx.strictness, dietaryType: ctx.dietaryType },
     breakdown,
     previous,
@@ -334,5 +514,7 @@ export function factsFingerprintSource(f: PeriodFacts): string {
     weight: f.weight,
     streaks: f.streaks,
     breakdown: f.breakdown,
+    // A new or changed goal changes the timeline coaching → Outdated.
+    goal: f.goal,
   });
 }
