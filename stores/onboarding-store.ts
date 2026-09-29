@@ -62,6 +62,7 @@ interface OnboardingState {
 const INITIAL_FORM_DATA: Partial<OnboardingFormData> = {
   strictness: "MODERATE",
   unitSystem: "METRIC",
+  insightPlan: "WEEKLY_AND_MONTHLY",
   // Schema minimums so body inputs show valid starting values on first visit
   weightKg: 30,
   heightCm: 100,

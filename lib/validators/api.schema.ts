@@ -236,6 +236,8 @@ export const updatePreferencesSchema = z
     // was looking at (null = none stored). A screen that is out of date gets a
     // 409 instead of overwriting a newer choice made on another device.
     expectedTimezone: z.union([timezoneSchema, z.null()]).optional(),
+    // Which AI reports the user gets (Settings → Coach check-ins).
+    insightPlan: z.enum(["WEEKLY_AND_MONTHLY", "MONTHLY_ONLY"]).optional(),
   })
   .refine(
     // onlyIfUnset and expectedTimezone are write modes, not preferences.
@@ -248,7 +250,26 @@ export const updatePreferencesSchema = z
   )
   .refine((data) => !(data.onlyIfUnset && data.expectedTimezone !== undefined), {
     message: "Use onlyIfUnset or expectedTimezone, not both",
-  });
+  })
+  // The timezone write modes only write the zone; mixing in another
+  // preference would silently drop it.
+  .refine(
+    (data) =>
+      data.insightPlan === undefined ||
+      (data.onlyIfUnset === undefined && data.expectedTimezone === undefined),
+    { message: "Change the report plan in its own request" }
+  );
+
+// ─── GET /api/progress/summary?range= — Progress page numbers ─
+export const summaryRangeSchema = z.enum(["1M", "3M", "6M", "1Y", "ALL"]).catch("3M");
+
+// ─── POST /api/insights/generate — write one AI report ────────
+// Only the TYPE comes from the client; the period is always derived on the
+// server from the user's calendar (a client can't pick arbitrary dates).
+export const generateReportSchema = z.object({
+  type: z.enum(["WEEK", "MONTH", "QUARTER", "YEAR"]),
+  regenerate: z.boolean().optional(),
+});
 
 // ─── POST /api/share — create a share link for a template ────
 // `kind` is fixed server-side (WORKOUT_TEMPLATE), never taken from the body.

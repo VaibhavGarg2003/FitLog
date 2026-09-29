@@ -40,6 +40,8 @@ export function openRouterReferer(
 }
 
 interface OpenRouterRequest {
+  /** Override the default timeout (a caller with a bigger budget, e.g. reports). */
+  timeoutMs?: number;
   systemPrompt: string;
   userMessage: string;
 }
@@ -74,8 +76,9 @@ export async function callOpenRouter(
     // so we instruct JSON output in the system prompt instead.
   };
 
+  const timeoutMs = request.timeoutMs ?? OPENROUTER_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), OPENROUTER_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(OPENROUTER_BASE_URL, {
@@ -108,7 +111,7 @@ export async function callOpenRouter(
     return { text, provider: "openrouter" };
   } catch (error: unknown) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`OpenRouter timed out after ${OPENROUTER_TIMEOUT_MS}ms`);
+      throw new Error(`OpenRouter timed out after ${timeoutMs}ms`);
     }
     throw error;
   } finally {

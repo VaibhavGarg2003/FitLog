@@ -28,6 +28,8 @@ const GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_TIMEOUT_MS = 2000;
 
 interface GroqRequest {
+  /** Override the default timeout (a caller with a bigger budget, e.g. reports). */
+  timeoutMs?: number;
   systemPrompt: string;
   userMessage: string;
 }
@@ -61,8 +63,9 @@ export async function callGroq(request: GroqRequest): Promise<GroqResponse> {
     // Same concept as Gemini's responseMimeType: "application/json"
   };
 
+  const timeoutMs = request.timeoutMs ?? GROQ_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(GROQ_BASE_URL, {
@@ -93,7 +96,7 @@ export async function callGroq(request: GroqRequest): Promise<GroqResponse> {
     return { text, provider: "groq" };
   } catch (error: unknown) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Groq timed out after ${GROQ_TIMEOUT_MS}ms`);
+      throw new Error(`Groq timed out after ${timeoutMs}ms`);
     }
     throw error;
   } finally {

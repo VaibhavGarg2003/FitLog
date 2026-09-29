@@ -21,6 +21,8 @@
  * - Timeouts are a BUDGET, not per-provider choices: Vercel Hobby kills the
  *   function at ~10s, so the worst-case chain (all three time out in
  *   sequence) must stay under ~8s → Gemini 4s + Groq 2s + OpenRouter 2s.
+ *   Those are the defaults (meal parsing). A caller with a longer route
+ *   budget — the AI reports, whose answers are longer — passes `timeoutsMs`.
  */
 
 import { callGemini } from "./gemini";
@@ -37,6 +39,12 @@ export interface FallbackRequest {
   /** Base64-encoded image data (for Gemini multimodal) */
   imageBase64?: string;
   imageMimeType?: string;
+  /**
+   * Per-provider timeouts for a caller whose route allows longer than the
+   * default ~8s chain. They still SUM: keep the total under the route's
+   * maxDuration (and, for reports, under the generation lease).
+   */
+  timeoutsMs?: Partial<Record<AIProvider, number>>;
 }
 
 export interface FallbackSuccess {
@@ -74,6 +82,7 @@ export async function runWithFallback(
         userMessage: request.userMessage,
         imageBase64: request.imageBase64,
         imageMimeType: request.imageMimeType,
+        timeoutMs: request.timeoutsMs?.gemini,
       });
       return { ok: true, text: result.text, provider: result.provider };
     } catch (error: unknown) {
@@ -101,6 +110,7 @@ export async function runWithFallback(
       const result = await callGroq({
         systemPrompt: request.systemPrompt,
         userMessage: request.userMessage,
+        timeoutMs: request.timeoutsMs?.groq,
       });
       return { ok: true, text: result.text, provider: result.provider };
     } catch (error: unknown) {
@@ -118,6 +128,7 @@ export async function runWithFallback(
       const result = await callOpenRouter({
         systemPrompt: request.systemPrompt,
         userMessage: request.userMessage,
+        timeoutMs: request.timeoutsMs?.openrouter,
       });
       return { ok: true, text: result.text, provider: result.provider };
     } catch (error: unknown) {

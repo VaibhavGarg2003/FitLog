@@ -7,7 +7,7 @@
  * WHY A SEPARATE ROUTE FROM PUT /api/profile:
  * ───────────────────────────────────────────
  * PUT /api/profile reruns the calorie engine and rewrites the user's nutrition
- * targets every time it is called. A preference (today: timezone) has nothing
+ * targets every time it is called. A preference (timezone, report plan) has nothing
  * to do with targets — sending it through PUT would recalculate, and possibly
  * change, someone's calories because their phone crossed a timezone.
  *
@@ -19,6 +19,10 @@
  *     user saw; otherwise 409, so a stale screen never overwrites a newer
  *     choice from another device.
  *   - neither — unconditional replace (no UI caller).
+ *
+ * `insightPlan` (Settings → Coach check-ins: WEEKLY_AND_MONTHLY | MONTHLY_ONLY)
+ * is a plain replace and must come in its own request (the schema rejects it
+ * alongside the timezone write modes).
  *
  * RESPONSE: { success: true, applied } — applied is false when onlyIfUnset
  * found a zone already stored (not an error: there was nothing to fill).

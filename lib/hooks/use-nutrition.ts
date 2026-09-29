@@ -84,6 +84,8 @@ export function useLogFood(date: string) {
       // This makes the dashboard calorie ring update automatically
       queryClient.invalidateQueries({ queryKey: ["nutrition", "meals", date] });
       queryClient.invalidateQueries({ queryKey: ["nutrition", "daily", date] });
+      // Progress averages / report freshness (refetched when next shown).
+      queryClient.invalidateQueries({ queryKey: ["progress"] });
     },
   });
 }
@@ -105,6 +107,8 @@ export function useDeleteFood(date: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["nutrition", "meals", date] });
       queryClient.invalidateQueries({ queryKey: ["nutrition", "daily", date] });
+      // Progress averages / report freshness (refetched when next shown).
+      queryClient.invalidateQueries({ queryKey: ["progress"] });
     },
   });
 }

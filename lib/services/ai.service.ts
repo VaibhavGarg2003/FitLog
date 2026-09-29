@@ -2,19 +2,15 @@
  * AI Service — Business Logic for AI Features
  * ═════════════════════════════════════════════
  *
- * TWO MAIN FUNCTIONS:
- * ───────────────────
- * 1. parseMealText()  — turns "2 rotis with dal" into food log entries
- * 2. generateWeeklyInsight() — writes a personalised weekly coaching summary
+ * parseMealText() — turns "2 rotis with dal" into food log entries.
+ *
+ * (The weekly insight that used to live here was replaced by the period
+ * reports in lib/services/insight.service.ts.)
  *
  * HOW THIS CONNECTS TO STEPS 1-3:
  * ────────────────────────────────
  * - Uses runWithFallback() (Step 4) to call LLMs
  * - Uses logFoodItem() / logCustomFood() (Step 3) to save parsed foods
- * - Uses analytics.repository range queries to read weekly data (one query per
- *   data type for the whole week)
- * - Uses profile repository (Step 2) to read targets/goals
- * - Uses calculateAdaptiveTDEE() (Step 2 engine) for adaptive TDEE
  *
  * THE AI IS A NEW FRONT DOOR TO EXISTING FUNCTIONS.
  * It does not reinvent meal logging — it parses text into the same
@@ -23,29 +19,10 @@
 
 import { z } from "zod";
 import { runWithFallback } from "@/lib/ai/fallback";
-import {
-  MEAL_PARSER_SYSTEM_PROMPT,
-  WEEKLY_INSIGHT_SYSTEM_PROMPT,
-} from "@/lib/ai/prompts";
+import { MEAL_PARSER_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { logMealFoods } from "@/lib/services/nutrition.service";
-import {
-  getDailyNutritionInRange,
-  getDailyWorkoutsInRange,
-  getWeightLogsInRange,
-} from "@/lib/repositories/analytics.repository";
-import { addDays, fillDays, listDays } from "@/lib/insights/fill-days";
-import { getProfileByUserId } from "@/lib/repositories/profile.repository";
-import {
-  getInsightForWeek,
-  saveInsight,
-} from "@/lib/repositories/insight.repository";
 import { findFoodCandidates } from "@/lib/repositories/food.repository";
-import {
-  UserFacingError,
-  UpstreamError,
-  NotFoundError,
-} from "@/lib/utils/errors";
-import { localDateStr } from "@/lib/utils/local-date";
+import { UserFacingError, UpstreamError } from "@/lib/utils/errors";
 
 // ─────────────────────────────────────────────────────────────
 // TYPES & LLM OUTPUT VALIDATION
@@ -268,258 +245,5 @@ export async function parseMealText(
     logged,
     provider: aiResult.provider,
     totalCalories,
-  };
-}
-
-// ─────────────────────────────────────────────────────────────
-// WEEKLY INSIGHT
-// ─────────────────────────────────────────────────────────────
-
-/**
- * Get the Monday of the week containing `localDate` (a "YYYY-MM-DD" string
- * from the CLIENT — the user's own calendar date).
- *
- * TIMEZONE RULE: the server must never compute "today" from its own clock
- * for a user-facing feature. Vercel runs in UTC; for an Indian user opening
- * the app Monday 9 AM IST, the server's clock still says Sunday — the old
- * code served LAST week's insight as "this week" and cached it.
- *
- * The date string is anchored to UTC midnight so the day-of-week arithmetic
- * below is pure calendar math, immune to whatever timezone the server is in.
- * Falls back to the server's local date only when the client sent none.
- */
-function getWeekStart(localDate?: string): Date {
-  const dateStr =
-    localDate && /^\d{4}-\d{2}-\d{2}$/.test(localDate)
-      ? localDate
-      : localDateStr();
-  const monday = new Date(`${dateStr}T00:00:00Z`);
-  const day = monday.getUTCDay(); // 0=Sun, 1=Mon, ...
-  const diff = day === 0 ? 6 : day - 1; // Days since Monday
-  monday.setUTCDate(monday.getUTCDate() - diff);
-  return monday;
-}
-
-/**
- * Format a UTC-anchored date as "YYYY-MM-DD".
- *
- * NOTE: toISOString().split("T")[0] is BANNED for wall-clock dates
- * (CONTEXT.md — the July 8 midnight bug). It is correct HERE because every
- * date passed in is already anchored to UTC midnight by getWeekStart() —
- * this is calendar arithmetic, not clock reading.
- */
-function formatDate(d: Date): string {
-  return d.toISOString().split("T")[0];
-}
-
-/**
- * Read the cached weekly insight for the current week — WITHOUT generating.
- *
- * WHY THIS EXISTS (separate from generateWeeklyInsight):
- * ─────────────────────────────────────────────────────
- * Reading an already-generated insight from the database is CHEAP and should
- * be unlimited. Generating a NEW one calls the LLM and is EXPENSIVE, so only
- * generation is rate-limited. Keeping "read" and "generate" as two functions
- * lets the API route serve a cached insight to a user who has exhausted their
- * weekly generation quota — instead of blocking them behind a 429.
- *
- * Returns the cached insight, or null if none exists for this week yet.
- */
-export async function getCachedWeeklyInsight(userId: string, localDate?: string) {
-  const weekStart = getWeekStart(localDate);
-  const existing = await getInsightForWeek(userId, weekStart);
-  if (!existing) return null;
-
-  return {
-    insight: existing.content,
-    highlights: (existing.highlights as string[]) ?? [],
-    suggestion: existing.suggestion,
-    weekStart: formatDate(weekStart),
-    provider: existing.provider,
-    cached: true,
-  };
-}
-
-/**
- * Generate a personalised weekly coaching insight.
- *
- * FLOW:
- * 1. Check if insight already exists for this week → return cached
- * 2. Fetch 7 days of nutrition, workout, and weight data
- * 3. Fetch user profile (targets, goal, strictness)
- * 4. Build a context string with all the data
- * 5. Send to LLM with the weekly insight system prompt
- * 6. Save to database (cache for this week)
- * 7. Return the insight
- */
-export async function generateWeeklyInsight(userId: string, localDate?: string) {
-  const weekStart = getWeekStart(localDate);
-
-  // 1. Check cache — don't regenerate if already exists.
-  //
-  // KNOWN LIMITATION (cache stampede): two concurrent misses will BOTH call
-  // the LLM; saveInsight() upserts on (userId, weekStart) so the writes
-  // can't conflict — last one wins. Accepted: generation is rate-limited to
-  // 2/week/user, so the worst case is one wasted LLM call, not corruption.
-  const existing = await getInsightForWeek(userId, weekStart);
-  if (existing) {
-    return {
-      insight: existing.content,
-      highlights: existing.highlights as string[],
-      suggestion: existing.suggestion,
-      weekStart: formatDate(weekStart),
-      provider: existing.provider,
-      cached: true,
-    };
-  }
-
-  // 2. Fetch the week's data — ONE query per data type for the whole range
-  //    (was one query per day per type: 14 round trips). Calendar math on
-  //    "YYYY-MM-DD" strings; weekStart is UTC-anchored.
-  const days = listDays(formatDate(weekStart), addDays(formatDate(weekStart), 6));
-  const weekFrom = days[0];
-  const weekTo = days[6];
-
-  const [nutritionRows, workoutRows, weights, profile] = await Promise.all([
-    getDailyNutritionInRange(userId, weekFrom, weekTo),
-    getDailyWorkoutsInRange(userId, weekFrom, weekTo),
-    // Weight trend over the 14 calendar days ENDING on the week's last day.
-    // (Was the latest 14 ENTRIES regardless of date — for a weekly weigh-in
-    // that spanned 14 weeks, and ignored which week was being reported.)
-    getWeightLogsInRange(userId, addDays(weekTo, -13), weekTo),
-    getProfileByUserId(userId),
-  ]);
-
-  if (!profile) {
-    throw new NotFoundError("Profile not found. Complete onboarding first.");
-  }
-
-  // Days with no rows are absent from a GROUP BY — fill them with zeros so the
-  // breakdown below still has exactly one line per day.
-  const nutritionDays = fillDays(days, nutritionRows, {
-    calories: 0,
-    protein: 0,
-    carbs: 0,
-    fat: 0,
-  });
-  const workoutDays = fillDays(days, workoutRows, { sessions: 0 });
-
-  // 3. Build context for the LLM
-  const daysLogged = nutritionDays.filter((d) => d.calories > 0).length;
-  const avgCalories =
-    daysLogged > 0
-      ? Math.round(
-          nutritionDays.reduce((s, d) => s + d.calories, 0) / daysLogged
-        )
-      : 0;
-  const avgProtein =
-    daysLogged > 0
-      ? Math.round(
-          nutritionDays.reduce((s, d) => s + d.protein, 0) / daysLogged
-        )
-      : 0;
-
-  // Days trained, as before. What counts as a workout is now stricter: empty
-  // unfinished sessions no longer count (see getDailyWorkoutsInRange).
-  const totalWorkouts = workoutDays.filter((d) => d.sessions > 0).length;
-
-  // Already oldest-first from the query.
-  const sortedWeights = weights;
-  const weeklyWeightChange =
-    sortedWeights.length >= 2
-      ? Math.round(
-          (sortedWeights[sortedWeights.length - 1].weightKg -
-            sortedWeights[0].weightKg) *
-            10
-        ) / 10
-      : null;
-
-  const contextMessage = `
-## User Profile
-- Goal: ${profile.goal}
-- Target Calories: ${profile.targetCalories} kcal/day
-- Target Protein: ${profile.targetProtein}g/day
-- Target Carbs: ${profile.targetCarbs}g/day
-- Target Fat: ${profile.targetFat}g/day
-- Current Weight: ${profile.weightKg}kg
-- Strictness: ${profile.strictness}
-- Dietary Type: ${profile.dietaryType || "Not specified"}
-
-## This Week's Data (${weekFrom} to ${weekTo})
-- Days with food logged: ${daysLogged} / 7
-- Average daily calories: ${avgCalories} kcal (target: ${profile.targetCalories})
-- Average daily protein: ${avgProtein}g (target: ${profile.targetProtein})
-- Workout sessions: ${totalWorkouts}
-- Weight change this period: ${weeklyWeightChange !== null ? `${weeklyWeightChange > 0 ? "+" : ""}${weeklyWeightChange} kg` : "Not enough weight data"}
-
-## Daily Breakdown
-${days
-  .map((d, i) => {
-    const n = nutritionDays[i];
-    const w = workoutDays[i];
-    return `${d}: ${n.calories} kcal / ${n.protein}g protein / ${w.sessions} workout(s)`;
-  })
-  .join("\n")}
-
-Write a personalised weekly insight for this user.`;
-
-  // 4. Call LLM
-  const aiResult = await runWithFallback({
-    systemPrompt: WEEKLY_INSIGHT_SYSTEM_PROMPT,
-    userMessage: contextMessage,
-  });
-
-  if (!aiResult.ok) {
-    // aiResult.error is a user-friendly message written by the fallback
-    // chain; provider details stay in aiResult.attempts (server logs only).
-    throw new UpstreamError(aiResult.error);
-  }
-
-  // 5. Parse LLM response
-  let insightData: {
-    insight: string;
-    highlights: string[];
-    suggestion: string;
-  };
-
-  try {
-    insightData = JSON.parse(aiResult.text);
-  } catch {
-    // If JSON parsing fails, treat the entire response as the insight text
-    insightData = {
-      insight: aiResult.text,
-      highlights: [],
-      suggestion: "",
-    };
-  }
-
-  // 6. Save to database
-  const metadata = {
-    daysLogged,
-    avgCalories,
-    avgProtein,
-    totalWorkouts,
-    weeklyWeightChange,
-    targetCalories: profile.targetCalories,
-    targetProtein: profile.targetProtein,
-  };
-
-  await saveInsight(userId, {
-    weekStart,
-    content: insightData.insight,
-    highlights: insightData.highlights || [],
-    suggestion: insightData.suggestion || "",
-    provider: aiResult.provider,
-    metadata,
-  });
-
-  // 7. Return
-  return {
-    insight: insightData.insight,
-    highlights: insightData.highlights || [],
-    suggestion: insightData.suggestion || "",
-    weekStart: formatDate(weekStart),
-    provider: aiResult.provider,
-    cached: false,
   };
 }
