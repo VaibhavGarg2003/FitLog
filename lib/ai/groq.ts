@@ -3,12 +3,12 @@
  * ════════════════════════════════════
  *
  * Uses Groq's OpenAI-compatible API.
- * Groq runs models on custom LPU hardware — responses in < 500ms.
+ * Groq serves this model on its LPU infrastructure; latency varies by request.
  *
- * MODEL: llama-3.3-70b-versatile
+ * MODEL: openai/gpt-oss-120b
  * ─────
- * 70B parameters — large enough for accurate food parsing
- * Free tier: 6,000 tokens/min, 30 RPM
+ * OpenAI's open-weight 120B model, served by Groq. Free-tier rate limits are
+ * per model and change over time — check the Groq console, not this comment.
  *
  * WHY OPENAI-COMPATIBLE?
  * ──────────────────────
@@ -23,8 +23,8 @@
 
 const GROQ_MODEL = "openai/gpt-oss-120b";
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
-// Part of the 8s chain budget (Gemini 4s + Groq 2s + OpenRouter 2s) — see
-// gemini.ts for the full derivation from the Vercel 10s ceiling.
+// Part of the 8s parsing-chain budget (Gemini 4s + Groq 2s + OpenRouter 2s) —
+// see gemini.ts for the derivation.
 const GROQ_TIMEOUT_MS = 2000;
 
 interface GroqRequest {
@@ -40,7 +40,7 @@ interface GroqResponse {
 }
 
 /**
- * Call Groq (Llama 3.3 70B) and return the raw text response.
+ * Call Groq (gpt-oss-120b) and return the raw text response.
  *
  * @throws Error if the API key is missing, call fails, or times out
  */

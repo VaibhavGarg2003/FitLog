@@ -11,16 +11,17 @@
  * THE CHAIN:
  * ──────────
  * 1. Gemini 3.1 Flash Lite (primary — best quality, multimodal)
- * 2. Groq Llama 3.3 70B (fast fallback — text only)
- * 3. OpenRouter DeepSeek Chat (second fallback — text only)
+ * 2. Groq gpt-oss-120b (fast fallback — text only)
+ * 3. OpenRouter Gemma 4 26B, free tier (second fallback — text only)
+ * Exact model ids live in GROQ_MODEL / OPENROUTER_MODEL (groq.ts, openrouter.ts).
  *
  * SKIPPING RULES:
  * ───────────────
  * - Provider is skipped if its API key is empty/missing
  * - Provider is skipped if request requires images and provider is text-only
- * - Timeouts are a BUDGET, not per-provider choices: Vercel Hobby kills the
- *   function at ~10s, so the worst-case chain (all three time out in
- *   sequence) must stay under ~8s → Gemini 4s + Groq 2s + OpenRouter 2s.
+ * - Timeouts are a BUDGET, not per-provider choices: the worst-case chain
+ *   (all three time out in sequence) must fit well inside the function's max
+ *   duration, so parsing keeps it to ~8s → Gemini 4s + Groq 2s + OpenRouter 2s.
  *   Those are the defaults (meal parsing). A caller with a longer route
  *   budget — the AI reports, whose answers are longer — passes `timeoutsMs`.
  */
@@ -34,7 +35,7 @@ export type AIProvider = "gemini" | "groq" | "openrouter";
 export interface FallbackRequest {
   systemPrompt: string;
   userMessage: string;
-  /** If true, only Gemini is tried (Groq/OpenRouter cannot handle images) */
+  /** If true, only Gemini is tried (our Groq/OpenRouter clients are text-only) */
   requiresMultimodal?: boolean;
   /** Base64-encoded image data (for Gemini multimodal) */
   imageBase64?: string;
@@ -95,7 +96,7 @@ export async function runWithFallback(
   }
 
   // If the request requires multimodal (images), stop here.
-  // Groq and OpenRouter cannot process images.
+  // Our Groq and OpenRouter clients are text-only.
   if (request.requiresMultimodal) {
     return {
       ok: false,

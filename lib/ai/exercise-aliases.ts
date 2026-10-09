@@ -347,7 +347,7 @@ export function isAmbiguousTerm(raw: string): boolean {
  * within the right family.
  *
  * Kept terse on purpose — every token here is spent against the latency budget
- * (Gemini 4s, whole chain 8s, Vercel wall ~10s).
+ * (Gemini 4s, whole parsing chain 8s).
  */
 export function buildCatalogList(
   exercises: Array<{ name: string; muscleGroup: string }>

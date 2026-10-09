@@ -123,7 +123,7 @@ export function Step2Body() {
   const debouncedReady =
     inWeightRange(debouncedWeight) && inHeightRange(debouncedHeight);
 
-  // True while typing / spinner clicks still settling (2s after last change).
+  // True while typing / spinner clicks still settling (BMI_DEBOUNCE_MS after last change).
   const isBmiPending =
     liveReady &&
     (debouncedWeight !== weightNum || debouncedHeight !== heightNum);
@@ -221,7 +221,7 @@ export function Step2Body() {
           )}
         </div>
 
-        {/* BMI Preview — debounced 2s after last weight/height change */}
+        {/* BMI Preview — debounced BMI_DEBOUNCE_MS (500ms) after last weight/height change */}
         {showBmiCard && (
           <div className="sm:col-span-2 p-4 lg:p-5 bg-background rounded-xl border border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             {isBmiPending || bmi === null ? (
