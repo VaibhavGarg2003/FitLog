@@ -3,19 +3,20 @@
  * ═════════════════════════════════════
  *
  * Uses OpenRouter's OpenAI-compatible API.
- * OpenRouter aggregates 20+ free models — we use Google Gemma 4 (free).
+ * OpenRouter aggregates many models — we use Google Gemma 4 (free).
  *
  * MODEL: google/gemma-4-26b-a4b-it:free
  * ─────
  * Google Gemma 4 26B — strong multilingual model, free on OpenRouter
  *
- * TEXT ONLY — cannot process images.
+ * TEXT-ONLY CLIENT — this integration never sends image inputs (the model
+ * itself may support them; this client doesn't use that).
  */
 
 const OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions";
-// Part of the 8s chain budget (Gemini 4s + Groq 2s + OpenRouter 2s) — see
-// gemini.ts for the full derivation from the Vercel 10s ceiling.
+// Part of the 8s parsing-chain budget (Gemini 4s + Groq 2s + OpenRouter 2s) —
+// see gemini.ts for the derivation.
 const OPENROUTER_TIMEOUT_MS = 2000;
 
 /**

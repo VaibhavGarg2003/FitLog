@@ -6,23 +6,24 @@
  *
  * MODEL: gemini-3.1-flash-lite
  * ─────
- * Free tier: 15 RPM / 250K TPM / 500 RPD
+ * Rate limits vary by model, tier and project — check Google AI Studio.
  * Multimodal: supports text + image inputs
  * Best at: Indian food recognition, structured JSON output
  *
  * WHY NO SDK?
  * ──────────
- * The @google/generative-ai npm package adds ~40KB to the server bundle.
- * The REST API does the same thing with a single fetch() call.
- * Since we only need text-in → JSON-out, raw fetch is simpler.
+ * This integration calls the REST API with a single fetch() — no SDK
+ * dependency. Since we only need text-in → JSON-out, raw fetch is simpler.
  */
 
 const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
-// TIMEOUT BUDGET (top-down from the platform ceiling, Rule 9):
-// Vercel Hobby kills functions at ~10s. Reserve ~2s for DB writes and the
-// response → 8s for the WHOLE AI chain → Gemini 4s + Groq 2s + OpenRouter 2s.
+// TIMEOUT BUDGET (top-down, Rule 9): parsing routes keep the WHOLE AI chain
+// to 8s → Gemini 4s + Groq 2s + OpenRouter 2s, leaving headroom for DB writes
+// and the response inside the function's max duration (which depends on the
+// Vercel plan and compute settings — check the project, don't assume).
 // Per-provider timeouts must never be chosen independently — they sum.
+// Callers with a bigger budget (AI reports) pass their own timeouts.
 const GEMINI_TIMEOUT_MS = 4000;
 
 interface GeminiRequest {

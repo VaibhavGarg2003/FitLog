@@ -24,15 +24,16 @@ Against the production database:
 | Measurement | Result |
 |---|---|
 | One query **including** connection setup | ~2,300 ms |
-| 20 queries on an **already-open** connection | 2,740 ms total (~20 ms each) |
+| 20 queries on an **already-open** connection | 2,740 ms total (~137 ms each) |
 
 Connection establishment dominates. TLS + pooler auth is several round trips, so a
 cold serverless invocation paid roughly a full second before running any SQL.
 
 `addSet` also makes ~8 round trips (BEGIN, `SELECT … FOR UPDATE`, idempotency
 lookup, `max(set_number)`, INSERT, activity touch, COMMIT). That is deliberate —
-each one buys a correctness property (see `workout.repository.ts`) — but at
-~220 ms per hop between `iad1` and Sydney it added ~1.8 s on its own.
+each one buys a correctness property (see `workout.repository.ts`) — but at an
+estimated ~220 ms per hop between `iad1` and Sydney, that is roughly ~1.8 s on
+its own (estimate, not a per-hop measurement).
 
 ## The fix
 
@@ -42,17 +43,19 @@ Run the function in the same region as the database:
 { "regions": ["syd1"] }
 ```
 
-Function ↔ database drops from ~220 ms per round trip to ~1–2 ms. The user's own
+Function ↔ database is expected to drop from ~220 ms per round trip to ~1–2 ms
+(an estimate for same-region traffic, not a post-fix measurement). The user's own
 hop becomes Mumbai → Sydney (~150 ms) but that is paid **once per request**, not
 once per query.
 
 ## Why not Mumbai (`bom1`), closer to the user?
 
-Because a request makes many database round trips and only one user round trip:
+Because a request makes many database round trips and only one user round trip.
+Illustrative latency estimates, excluding connection setup and application work:
 
 | Function region | User hop | 8 DB hops | Total |
 |---|---|---|---|
-| `iad1` (current) | ~250 ms | ~1,760 ms | **~2,000 ms** |
+| `iad1` (before region pinning) | ~250 ms | ~1,760 ms | **~2,000 ms** |
 | `bom1` (Mumbai) | ~20 ms | ~1,200 ms | ~1,220 ms |
 | `sin1` (Singapore) | ~60 ms | ~760 ms | ~820 ms |
 | **`syd1` (Sydney)** | ~150 ms | **~16 ms** | **~165 ms** |
