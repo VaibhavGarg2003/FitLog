@@ -36,6 +36,7 @@ import {
 } from "@/lib/repositories/profile.repository";
 import {
   getActiveGoal,
+  getLatestWeight,
   replaceActiveGoal,
   retireActiveGoals,
 } from "@/lib/repositories/progress.repository";
@@ -190,14 +191,28 @@ export async function completeOnboarding(
 /**
  * Get a user's profile (with their active weight goal) or null if not found.
  * The Dashboard and Settings read `activeGoal` from here to show target weight
- * and goal progress — the Profile row holds current weight/macros, the Goal row
- * holds the target. Two sources, one response.
+ * and goal progress — the Profile row holds macros, the Goal row holds the
+ * target.
+ *
+ * `latestWeighIn` is the CURRENT weight: the newest weight log, the same
+ * source the Progress page uses. `profile.weightKg` is only the weight the
+ * targets were last calculated from (onboarding / a Settings save) — reading
+ * it as "current" left the dashboard at "0.0 kg lost" after every weigh-in.
  */
 export async function getUserProfile(userId: string) {
   const profile = await getProfileByUserId(userId);
   if (!profile) return null;
-  const activeGoal = await getActiveGoal(userId);
-  return { ...profile, activeGoal };
+  const [activeGoal, latest] = await Promise.all([
+    getActiveGoal(userId),
+    getLatestWeight(userId),
+  ]);
+  return {
+    ...profile,
+    activeGoal,
+    latestWeighIn: latest
+      ? { weightKg: latest.weightKg, date: dbDateToCalendarDay(latest.date) }
+      : null,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -357,6 +372,9 @@ export async function setWeightGoal(
 ) {
   const result = await updateProfileWithTargets(
     userId,
+    // Deliberately does NOT write startValue into profile.weightKg: the
+    // Settings form holds its own copy of the profile weight and would send
+    // the old value back on the next Recalculate, silently reverting it.
     (current, activeGoal) =>
       buildRecalculation(current, activeGoal, {}, options.deviceTimeZone),
     (tx, current) => {

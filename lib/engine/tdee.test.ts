@@ -220,6 +220,108 @@ describe("calculateGoalFromTimeline", () => {
     expect(tooFast.isSafe).toBe(false);
   });
 
+  describe("floor on MAINTAIN and GAIN_MUSCLE branches (FIX 8)", () => {
+    // A tiny, elderly, sedentary woman: BMR 714, TDEE 857 — below the 1200
+    // female floor. Before FIX 8 the gain branch prescribed 878 kcal with
+    // isSafe: true, and the maintain branch prescribed 857.
+    const tiny = {
+      tdee: 857,
+      bmr: 714,
+      sex: "FEMALE" as const,
+      wantsMuscle: true,
+      currentWeightKg: 30,
+    };
+
+    it("lifts a gain target to the 1200 floor and reports the real pace", () => {
+      const r = calculateGoalFromTimeline({ ...tiny, targetWeightKg: 31, timelineDays: 360 });
+      expect(r.mode).toBe("GAIN_MUSCLE");
+      expect(r.targetCalories).toBe(1200); // was 878
+      expect(r.dailyDeficit).toBeCloseTo(-343, 5); // 857 → 1200
+      expect(r.weeklyChangeKg).toBeCloseTo((343 * 7) / 7700, 5);
+      expect(r.estimatedWeeks).toBeCloseTo(7700 / (343 * 7), 5); // sooner than 360 days
+      expect(r.isSafe).toBe(true);
+      expect(r.floorApplied).toBe(true);
+    });
+
+    it("lifts a maintain target to the 1200 floor", () => {
+      const r = calculateGoalFromTimeline({ ...tiny, targetWeightKg: 30.2, timelineDays: 90 });
+      expect(r.mode).toBe("MAINTAIN");
+      expect(r.targetCalories).toBe(1200); // was 857
+      expect(r.dailyDeficit).toBe(-343);
+      expect(r.floorApplied).toBe(true);
+      expect(r.isSafe).toBe(true); // ~0.31 kg/week, under the 0.5 limit
+    });
+
+    it("lifts to the 1500 male floor too", () => {
+      // 50 kg, 160 cm, 70 y, sedentary male: BMR 1155, TDEE 1386
+      const r = calculateGoalFromTimeline({
+        tdee: 1386,
+        bmr: 1155,
+        sex: "MALE",
+        wantsMuscle: false,
+        currentWeightKg: 50,
+        targetWeightKg: 50,
+        timelineDays: 90,
+      });
+      expect(r.targetCalories).toBe(1500);
+      expect(r.floorApplied).toBe(true);
+    });
+
+    it("flags a floor-forced gain faster than 0.5 kg/week as unsafe, with a reason", () => {
+      // 30 kg, 100 cm, 60 y, sedentary female: BMR 464, TDEE 557 → +643 kcal/day
+      const r = calculateGoalFromTimeline({
+        tdee: 557,
+        bmr: 464,
+        sex: "FEMALE",
+        wantsMuscle: true,
+        currentWeightKg: 30,
+        targetWeightKg: 32,
+        timelineDays: 720, // even the longest timeline can't slow it down
+      });
+      expect(r.targetCalories).toBe(1200);
+      expect(r.floorApplied).toBe(true);
+      expect(r.weeklyChangeKg).toBeCloseTo((643 * 7) / 7700, 5);
+      expect(r.isSafe).toBe(false);
+      expect(r.warningMessage).toMatch(/longer timeline won't change this/);
+    });
+
+    it("leaves normal users unchanged", () => {
+      const r = calculateGoalFromTimeline({
+        ...base,
+        currentWeightKg: 70,
+        targetWeightKg: 74,
+        timelineDays: 120,
+      });
+      expect(r.targetCalories).toBe(Math.round(2600 + (4 * 7700) / 120));
+      expect(r.estimatedWeeks).toBe(120 / 7);
+      expect(r.floorApplied).toBe(false);
+
+      const m = calculateGoalFromTimeline({
+        ...base,
+        currentWeightKg: 80,
+        targetWeightKg: 80.2,
+        timelineDays: 90,
+      });
+      expect(m.dailyDeficit).toBe(0);
+      expect(m.weeklyChangeKg).toBe(0);
+    });
+
+    it("onboarding (calculateFullProfile) calculates the floored target too", () => {
+      const p = calculateFullProfile({
+        sex: "FEMALE",
+        weightKg: 30,
+        heightCm: 140,
+        age: 60,
+        activityLevel: "SEDENTARY",
+        goal: "GAIN_MUSCLE",
+        targetWeightKg: 31,
+        timelineDays: 360,
+      });
+      expect(p.tdee).toBe(857);
+      expect(p.targetCalories).toBe(1200);
+    });
+  });
+
   it("keeps LOSE_FAT vs RECOMP driven by wantsMuscle", () => {
     const r = calculateGoalFromTimeline({
       ...base,

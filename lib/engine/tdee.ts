@@ -358,7 +358,8 @@ export function calculateMacroSplit(
  * 1. Rate: max safe fat loss = 1% of body weight per week.
  * 2. Floor: the target may never fall below calculateMinSafeCalories()
  *    — i.e. never below BMR, never a deficit deeper than 25% of TDEE,
- *    never below the absolute 1200/1500 medical minimum.
+ *    never below the absolute 1200/1500 medical minimum. This applies to
+ *    the MAINTAIN and GAIN_MUSCLE branches too (FIX 8), matching preset mode.
  *
  * Guard 1 alone is not enough. It scales with bodyweight, so at 108kg it
  * authorises a 1,188 kcal/day deficit — which for that user is 44% of TDEE
@@ -386,6 +387,10 @@ export function calculateGoalFromTimeline(input: {
   isSafe: boolean;
   warningMessage?: string;      // only set when isSafe = false
   safeTimelineDays?: number;    // minimum safe timeline (when isSafe = false)
+  // MAINTAIN / GAIN_MUSCLE only: true when the safe minimum lifted the target
+  // above what the request needed — so the user gains faster than asked (or,
+  // for MAINTAIN, gains at all). UIs must not promise the requested timeline.
+  floorApplied?: boolean;
 } {
   const { currentWeightKg, targetWeightKg, timelineDays, wantsMuscle, tdee, bmr, sex } =
     input;
@@ -395,15 +400,37 @@ export function calculateGoalFromTimeline(input: {
 
   const weightDelta = currentWeightKg - targetWeightKg; // positive = wants to lose
 
+  // FLOOR ON EVERY BRANCH (FIX 8): preset mode (calculateTargetCalories) has
+  // always clamped MAINTAIN and GAIN_MUSCLE to the safe minimum; these two
+  // timeline branches did not, so a very small or elderly user whose TDEE sits
+  // below the absolute 1200/1500 floor was handed e.g. 878 kcal with
+  // isSafe: true. Here target >= TDEE, so only the absolute floor can bite —
+  // and when it does, the numbers below describe the target actually given.
+
+  // When the floor forces a gain faster than 0.5 kg/week, no timeline fixes it
+  // — the surplus comes from the floor, not the deadline. Say so plainly.
+  const floorGainWarning = (weeklyGainKg: number) =>
+    `Your safe minimum of ${minSafeCalories.toLocaleString()} kcal/day is well above the ` +
+    `${Math.round(tdee).toLocaleString()} kcal you're estimated to burn, so eating it means ` +
+    `gaining about ${weeklyGainKg.toFixed(2)} kg/week — faster than the 0.5 kg/week we ` +
+    `recommend. A longer timeline won't change this; a higher activity level would.`;
+
   // ── Maintenance ──────────────────────────────────────────
   if (Math.abs(weightDelta) < 0.5) {
+    const targetCalories = Math.max(minSafeCalories, tdee);
+    const liftedSurplus = targetCalories - tdee; // 0 unless the floor lifted it
+    const weeklyChangeKg = (liftedSurplus * 7) / 7700;
+    const isSafe = weeklyChangeKg <= 0.5;
+
     return {
       mode: "MAINTAIN",
-      dailyDeficit: 0,
-      targetCalories: tdee,
-      weeklyChangeKg: 0,
+      dailyDeficit: tdee - targetCalories,       // 0, or negative when lifted
+      targetCalories,
+      weeklyChangeKg,
       estimatedWeeks: 0,
-      isSafe: true,
+      isSafe,
+      floorApplied: liftedSurplus > 0,
+      ...(isSafe ? {} : { warningMessage: floorGainWarning(weeklyChangeKg) }),
     };
   }
 
@@ -411,16 +438,27 @@ export function calculateGoalFromTimeline(input: {
   if (weightDelta < 0) {
     const weightToGain = Math.abs(weightDelta);
     const totalSurplusNeeded = weightToGain * 7700;
-    const dailySurplus = totalSurplusNeeded / timelineDays;
+    const requestedSurplus = totalSurplusNeeded / timelineDays;
+    // Never below the floor: lift the target if TDEE + surplus falls short.
+    const floorApplied = tdee + requestedSurplus < minSafeCalories;
+    // Floored: every number derives from the target actually prescribed.
+    // Not floored: unchanged from before (requested surplus, requested timeline).
+    const dailySurplus = floorApplied ? minSafeCalories - tdee : requestedSurplus;
     const weeklyGainKg = (dailySurplus * 7) / 7700;
+    const isSafe = weeklyGainKg <= 0.5;        // gaining more than 0.5kg/week = too fast
 
     return {
       mode: "GAIN_MUSCLE",
       dailyDeficit: -dailySurplus,              // negative = surplus
-      targetCalories: Math.round(tdee + dailySurplus),
+      targetCalories: floorApplied ? minSafeCalories : Math.round(tdee + requestedSurplus),
       weeklyChangeKg: weeklyGainKg,
-      estimatedWeeks: timelineDays / 7,
-      isSafe: weeklyGainKg <= 0.5,             // gaining more than 0.5kg/week = too fast
+      // A lifted surplus reaches the target sooner than the requested timeline.
+      estimatedWeeks: floorApplied
+        ? totalSurplusNeeded / (dailySurplus * 7)
+        : timelineDays / 7,
+      isSafe,
+      floorApplied,
+      ...(floorApplied && !isSafe ? { warningMessage: floorGainWarning(weeklyGainKg) } : {}),
     };
   }
 

@@ -30,6 +30,7 @@
 import { useUIStore } from "@/stores/ui-store";
 import { useProfile } from "@/lib/hooks/use-profile";
 import { useDailySummary } from "@/lib/hooks/use-daily-summary";
+import { pickCurrentWeight } from "@/lib/progress/goal-progress";
 import { DateStrip } from "./_components/date-strip";
 import { CalorieRing } from "./_components/calorie-ring";
 import { MacroBars } from "./_components/macro-bars";
@@ -118,7 +119,11 @@ export default function DashboardPage() {
           {/* Goal Progress */}
           <div className="lg:col-span-6">
             <GoalProgress
-              currentWeight={profile?.weightKg ?? null}
+              currentWeight={pickCurrentWeight({
+                latestWeighIn: profile?.latestWeighIn,
+                profileWeightKg: profile?.weightKg,
+                goal: profile?.activeGoal,
+              })}
               targetWeight={profile?.activeGoal?.targetValue ?? null}
               startWeight={
                 profile?.activeGoal?.startValue ?? profile?.weightKg ?? null

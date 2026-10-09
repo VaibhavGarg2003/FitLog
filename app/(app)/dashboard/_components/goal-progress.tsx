@@ -19,7 +19,13 @@
  * via currentWeight. The old "Log your weight" message fired because
  * targetWeight (a separate field) was missing — but the user has no way
  * to set that from the app yet. Showing that message was misleading.
+ *
+ * CURRENT WEIGHT is the latest weigh-in (passed in by the dashboard), and
+ * progress is direction-aware — see lib/progress/goal-progress.ts. Weight
+ * moving away from the target is shown as such, never as progress.
  */
+
+import { computeGoalProgress } from "@/lib/progress/goal-progress";
 
 const GOAL_LABELS: Record<string, string> = {
   LOSE_FAT: "🔥 Lose Fat",
@@ -58,11 +64,32 @@ export function GoalProgress({
 
   // State 1 — full progress bar (all three values available)
   if (currentWeight && targetWeight && startWeight) {
-    const totalToLose = Math.abs(startWeight - targetWeight);
-    const lost = Math.abs(startWeight - currentWeight);
-    const percentage = totalToLose > 0 ? Math.min((lost / totalToLose) * 100, 100) : 0;
-    const isGaining = targetWeight > startWeight;
-    const remaining = Math.abs(currentWeight - targetWeight);
+    const { isMaintenance, isGaining, progressKg, movedAwayKg, percentage, remainingKg, reached } =
+      computeGoalProgress(startWeight, currentWeight, targetWeight);
+
+    // Start == target: nothing to "lose" or "gain" — show distance from target.
+    if (isMaintenance) {
+      return (
+        <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-3 h-full">
+          <div className="flex justify-between items-baseline">
+            <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+              Goal Progress
+            </h3>
+            <span className="text-xs text-text-muted">
+              Target: {targetWeight} kg
+            </span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-primary">
+              {reached ? "At target" : `${remainingKg.toFixed(1)} kg`}
+            </span>
+            {!reached && (
+              <span className="text-sm text-text-muted">from target</span>
+            )}
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="bg-surface rounded-2xl p-5 lg:p-6 border border-border space-y-3 h-full">
@@ -75,14 +102,25 @@ export function GoalProgress({
           </span>
         </div>
 
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold text-primary">
-            {lost.toFixed(1)} kg
-          </span>
-          <span className="text-sm text-text-muted">
-            {isGaining ? "gained" : "lost"} so far
-          </span>
-        </div>
+        {movedAwayKg > 0 ? (
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-text-primary">
+              {movedAwayKg.toFixed(1)} kg
+            </span>
+            <span className="text-sm text-text-muted">
+              {isGaining ? "lost" : "gained"} since you started
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-primary">
+              {progressKg.toFixed(1)} kg
+            </span>
+            <span className="text-sm text-text-muted">
+              {isGaining ? "gained" : "lost"} so far
+            </span>
+          </div>
+        )}
 
         <div className="h-3 bg-border rounded-full overflow-hidden">
           <div
@@ -97,7 +135,7 @@ export function GoalProgress({
         <div className="flex justify-between text-xs text-text-muted">
           <span>{startWeight} kg</span>
           <span className="text-primary font-medium">
-            {remaining.toFixed(1)} kg to go
+            {reached ? "Goal reached 🎉" : `${remainingKg.toFixed(1)} kg to go`}
           </span>
           <span>{targetWeight} kg</span>
         </div>

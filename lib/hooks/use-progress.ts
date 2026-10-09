@@ -68,6 +68,9 @@ export function useLogWeight() {
       // All of ["progress"]: the weight list, the range summary and the AI
       // report cards (a weigh-in can make a saved report "Outdated").
       queryClient.invalidateQueries({ queryKey: ["progress"] });
+      // The profile response carries latestWeighIn — the dashboard goal
+      // card's current weight — so it must refresh too.
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
     },
   });
 }

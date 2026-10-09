@@ -26,7 +26,11 @@ export function GoalCard() {
   const queryClient = useQueryClient();
 
   const goal = profile?.activeGoal ?? null;
-  const currentWeight = profile?.weightKg ?? null;
+  // A new goal starts from the newest weigh-in, not the weight the targets
+  // were last calculated from — otherwise someone who has lost 79 → 76.2 kg
+  // and sets a new target starts it at a stale 79 kg.
+  const currentWeight =
+    profile?.latestWeighIn?.weightKg ?? profile?.weightKg ?? null;
 
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState("");
