@@ -6,7 +6,7 @@
 
 **[Live app →](https://myfitlog.vaibhav03.codes)** &nbsp;·&nbsp; **[Django service repo →](https://github.com/VaibhavGarg2003/fitlog-django)**
 
-Built with Next.js 16, Django and Postgres. 389 unit tests pass, and offline set retries are deduplicated in the database.
+Built with Next.js 16, Django and Postgres. 410 unit tests pass, and offline set retries are deduplicated in the database.
 
 > **Trying it?** Use **Continue with Google**, the fastest way in. It's installable on Android from the landing page.
 
@@ -30,7 +30,7 @@ Built with Next.js 16, Django and Postgres. 389 unit tests pass, and offline set
 - **Logs workouts as they happen.** Pick from a 155-exercise catalog and log sets during the session, or afterwards. Save any session as a reusable template.
 - **Keeps working in a basement gym.** Sets logged with no signal are stored on the phone and sync when the app is open and back online. Retrying a set never inserts it twice.
 - **Understands Indian food.** 148 seeded foods (116 with Hindi names) in real serving units: *roti*, *katori*, *glass*. Mark a meal as restaurant food and its calories are scaled by that food's restaurant multiplier. You can also save your own foods.
-- **Calculates targets.** A pure-function engine computes calories and macros from Mifflin-St Jeor BMR and activity-based TDEE. Weight-loss targets are checked against your BMR, a 1,200 kcal (female) / 1,500 kcal (male) floor, and a 25% maximum deficit.
+- **Calculates safe targets.** A pure-function engine computes calories and macros from Mifflin-St Jeor BMR and activity-based TDEE. No target goes below your BMR, a 1,200 kcal (female) / 1,500 kcal (male) floor, or a 25% maximum deficit, whether you're losing, maintaining or gaining.
 - **Turns descriptions into logs.** Type *"bench 4 sets 40x12, 50x10…"* and AI workout parsing produces a **draft you review** before anything is saved. AI meal parsing (*"2 roti, dal and curd"*) validates the reply and logs the matched foods straight away.
 - **Reports on finished periods.** The Progress tab shows weight trend, estimated one-rep max per lift and a consistency grid, all computed by code. Weekly, monthly, quarterly and yearly AI reports summarise those numbers in writing.
 - **Shares plans publicly.** A workout template becomes a public link that previews properly in WhatsApp. Friends can copy it into their own account.
@@ -122,7 +122,7 @@ The Django service owns `share_links` in the same Postgres, and a stray Prisma c
 
 ## Testing and CI
 
-- **389 passing unit tests** across the calorie engine, validators, offline queue, repositories and AI parsing. Another **20 integration tests** run against a real Postgres.
+- **410 passing unit tests** across the calorie engine, validators, offline queue, repositories and AI parsing. Another **20 integration tests** run against a real Postgres.
 - **CI runs on pushes to `main` and on pull requests targeting `main`** ([ci.yml](.github/workflows/ci.yml)): type-check → lint → tests → Prisma validation → a **migration drift check**, which replays every migration into a throwaway Postgres 16 and diffs it against the schema → production build.
 
 ```bash
