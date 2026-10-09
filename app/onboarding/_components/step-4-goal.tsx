@@ -48,6 +48,11 @@ type TimelineOption = {
   weeklyChangeKg: number;
   estimatedWeeks: number;
   isSafe: boolean;
+  /** negative = surplus (gain). Direction comes from the PLAN, not the request. */
+  dailyDeficit: number;
+  mode: ReturnType<typeof calculateGoalFromTimeline>["mode"];
+  /** The safe calorie minimum lifted this plan above what the goal needed. */
+  floorApplied: boolean;
 };
 
 /**
@@ -107,6 +112,28 @@ function minSafeTimelineMonths(input: {
     sex,
   } = input;
   const delta = currentWeightKg - targetWeightKg;
+
+  // Maintain / gain: if even the LONGEST timeline is unsafe, the safe calorie
+  // floor itself forces too fast a gain — no timeline can fix it, and every
+  // option would be filtered out. Say why instead of showing an empty grid.
+  if (delta <= 0 || Math.abs(delta) < 0.5) {
+    const longest = calculateGoalFromTimeline({
+      currentWeightKg,
+      targetWeightKg,
+      timelineDays: MAX_TIMELINE_MONTHS * DAYS_PER_MONTH,
+      wantsMuscle,
+      tdee,
+      bmr,
+      sex,
+    });
+    if (!longest.isSafe && longest.floorApplied) {
+      return {
+        months: MAX_TIMELINE_MONTHS,
+        unreachable: true,
+        message: longest.warningMessage,
+      };
+    }
+  }
 
   if (Math.abs(delta) < 0.5) {
     return { months: 1, unreachable: false };
@@ -208,6 +235,9 @@ function buildTimelineOptions(input: {
       weeklyChangeKg: plan.weeklyChangeKg,
       estimatedWeeks: plan.estimatedWeeks,
       isSafe: plan.isSafe,
+      dailyDeficit: plan.dailyDeficit,
+      mode: plan.mode,
+      floorApplied: plan.floorApplied ?? false,
     };
   }).filter((o) => o.isSafe);
 
@@ -594,10 +624,10 @@ export function Step4Goal() {
                   {timelineOptions.map((option) => {
                     const isSelected = selectedMonths === option.months;
                     // Engine returns a positive weeklyChangeKg for both loss and gain
-                    // (magnitude only); direction comes from goal vs current weight.
-                    const isGain =
-                      targetWeightNum !== undefined &&
-                      targetWeightNum > currentWeight;
+                    // (magnitude only). Direction comes from the PLAN's calories, not
+                    // the requested target: a maintain plan the safe floor lifted is
+                    // a surplus, i.e. a gain, even when the target is slightly lower.
+                    const isGain = option.dailyDeficit < 0;
                     const weeklyAbs = Math.abs(option.weeklyChangeKg);
                     const weeklyLabel =
                       weeklyAbs < 0.005
@@ -664,22 +694,64 @@ export function Step4Goal() {
                   <p className="text-sm font-semibold text-primary">
                     ✅ Your plan
                   </p>
-                  <p className="text-sm text-text-secondary mt-1">
-                    Reach{" "}
-                    <span className="font-semibold text-text-primary">
-                      {targetWeightNum} kg
-                    </span>{" "}
-                    in about{" "}
-                    <span className="font-semibold text-text-primary">
-                      {selectedOption.months}{" "}
-                      {selectedOption.months === 1 ? "month" : "months"}
-                    </span>{" "}
-                    while eating{" "}
-                    <span className="font-semibold text-text-primary">
-                      {selectedOption.targetCalories.toLocaleString()} kcal
-                    </span>{" "}
-                    per day.
-                  </p>
+                  {selectedOption.floorApplied ? (
+                    // The safe minimum lifted this plan: never promise the
+                    // requested timeline (or "maintenance") it no longer matches.
+                    <p className="text-sm text-text-secondary mt-1">
+                      Eat{" "}
+                      <span className="font-semibold text-text-primary">
+                        {selectedOption.targetCalories.toLocaleString()} kcal
+                      </span>{" "}
+                      per day — the safe minimum we recommend, which is above
+                      what you&apos;re estimated to burn.{" "}
+                      {selectedOption.mode === "MAINTAIN" ? (
+                        <>Expect slow weight gain at this intake.</>
+                      ) : (
+                        <>
+                          You&apos;ll likely reach{" "}
+                          <span className="font-semibold text-text-primary">
+                            {targetWeightNum} kg
+                          </span>{" "}
+                          sooner, in about{" "}
+                          <span className="font-semibold text-text-primary">
+                            {Math.max(1, Math.round(selectedOption.estimatedWeeks))}{" "}
+                            {Math.max(1, Math.round(selectedOption.estimatedWeeks)) === 1
+                              ? "week"
+                              : "weeks"}
+                          </span>
+                          .
+                        </>
+                      )}
+                    </p>
+                  ) : selectedOption.mode === "MAINTAIN" ? (
+                    // Target within 0.5 kg of current: a maintenance plan, so
+                    // there is no arrival date to promise.
+                    <p className="text-sm text-text-secondary mt-1">
+                      Your target is within 0.5 kg of your current weight, so
+                      this is a maintenance plan: eat about{" "}
+                      <span className="font-semibold text-text-primary">
+                        {selectedOption.targetCalories.toLocaleString()} kcal
+                      </span>{" "}
+                      per day.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-text-secondary mt-1">
+                      Reach{" "}
+                      <span className="font-semibold text-text-primary">
+                        {targetWeightNum} kg
+                      </span>{" "}
+                      in about{" "}
+                      <span className="font-semibold text-text-primary">
+                        {selectedOption.months}{" "}
+                        {selectedOption.months === 1 ? "month" : "months"}
+                      </span>{" "}
+                      while eating{" "}
+                      <span className="font-semibold text-text-primary">
+                        {selectedOption.targetCalories.toLocaleString()} kcal
+                      </span>{" "}
+                      per day.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

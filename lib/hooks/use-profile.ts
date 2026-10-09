@@ -50,6 +50,9 @@ interface Profile {
     name: string | null;
     avatarUrl: string | null;
   };
+  // Newest weight log — the CURRENT weight. weightKg above is only the weight
+  // the targets were last calculated from. null when nothing is logged.
+  latestWeighIn?: { weightKg: number; date: string } | null;
   // Active weight goal (null when the user skipped or picked Maintain).
   activeGoal?: {
     id: string;
