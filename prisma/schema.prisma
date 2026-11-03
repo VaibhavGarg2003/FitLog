@@ -76,6 +76,23 @@ model User {
   customFoods     CustomFood[]
   targetRevisions TargetRevision[]
 
+  // Buddies + chat
+  socialProfile       SocialProfile?
+  buddyshipsLow       Buddyship[]          @relation("BuddyshipLow")
+  buddyshipsHigh      Buddyship[]          @relation("BuddyshipHigh")
+  buddyRequestEvents  BuddyRequestEvent[]
+  blocksMade          UserBlock[]          @relation("BlocksMade")
+  blocksReceived      UserBlock[]          @relation("BlocksReceived")
+  conversationsLow    Conversation[]       @relation("ConversationLow")
+  conversationsHigh   Conversation[]       @relation("ConversationHigh")
+  conversationMembers ConversationMember[]
+  chatWsTickets       ChatWsTicket[]
+  messagesSent        Message[]
+  reportsMade         UserReport[]         @relation("ReportsMade")
+  reportsReceived     UserReport[]         @relation("ReportsReceived")
+  // @@map("users") — the table in PostgreSQL is called "users" (lowercase),
+  // but in our TypeScript code we use "User" (PascalCase).
+
   @@map("users")
   // @@map("users") — the table in PostgreSQL is called "users" (lowercase),
   // but in our TypeScript code we use "User" (PascalCase).
@@ -710,6 +727,199 @@ model WeeklyInsight {
 }
 
 // ─────────────────────────────────────────────────────────────
+// BUDDIES + CHAT
+// ─────────────────────────────────────────────────────────────
+// Opt-in social layer: a user picks a @handle, connects with buddies, and
+// chats 1:1 with ACCEPTED buddies only. Postgres is the only source of truth
+// for chat — live delivery (WebSocket hints) is an optimisation on top; a
+// client that misses a hint recovers by re-reading these tables.
+//
+// CONCURRENCY: every buddy/block/chat mutation takes two transaction-scoped
+// advisory locks in a fixed order — the acting user's, then the pair's —
+// before reading state (lib/repositories/social-locks.ts). That serialises
+// send-vs-block races and makes a conversation's message ids commit in
+// order, so per-conversation "after id X" catch-up never skips a row.
+//
+// ACCOUNT DELETION: every user FK here cascades, except reports (SET NULL),
+// so deleting either participant deletes the whole conversation.
+
+model SocialProfile {
+  userId       String   @id @map("user_id")
+  handle       String   @unique
+  // Lowercase [a-z0-9_]{3,20} — enforced by a CHECK in the migration.
+  inviteCode   String   @unique @map("invite_code")
+  // 128-bit random, base64url. Anyone holding it can connect instantly
+  // (sharing it is consent); rotating it revokes old QR codes / links.
+  readReceipts Boolean  @default(true) @map("read_receipts")
+  // Reciprocal, like WhatsApp: off ⇒ you don't send read markers to others
+  // and you don't see theirs.
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("social_profiles")
+}
+
+// One row per user PAIR, ever. userLowId < userHighId (byte order, CHECK in
+// the migration), so A→B and B→A can never both exist. Declines, cancels and
+// removals set INACTIVE instead of deleting, so the cooldown survives.
+model Buddyship {
+  id             String          @id @default(uuid())
+  userLowId      String          @map("user_low_id")
+  userHighId     String          @map("user_high_id")
+  status         BuddyshipStatus
+  requestedById  String          @map("requested_by_id")
+  requestedAt    DateTime        @default(now()) @map("requested_at")
+  respondedAt    DateTime?       @map("responded_at")
+  cooldownUserId String?         @map("cooldown_user_id")
+  // Who may NOT send a new request to the other until cooldownUntil
+  // (declined requester, cancelling requester, removed buddy).
+  cooldownUntil  DateTime?       @map("cooldown_until")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  userLow  User @relation("BuddyshipLow", fields: [userLowId], references: [id], onDelete: Cascade)
+  userHigh User @relation("BuddyshipHigh", fields: [userHighId], references: [id], onDelete: Cascade)
+
+  @@unique([userLowId, userHighId])
+  @@index([userHighId, status])
+  @@index([requestedById, requestedAt])
+  @@map("buddyships")
+}
+
+// Append-only: one row per buddy request actually sent. The daily request
+// quota counts THESE, not buddyships rows — re-requesting the same person
+// (after a cancel, decline cooldown or block/unblock) reuses the pair row but
+// still costs a request. Rows older than 2 days are pruned by retention.
+model BuddyRequestEvent {
+  id          String   @id @default(uuid())
+  requesterId String   @map("requester_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  requester   User     @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+
+  @@index([requesterId, createdAt])
+  @@index([createdAt])
+  @@map("buddy_request_events")
+}
+
+model UserBlock {
+  blockerId String   @map("blocker_id")
+  blockedId String   @map("blocked_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("BlocksMade", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("user_blocks")
+}
+
+// A 1:1 conversation. Exactly two members, created together with it.
+model Conversation {
+  id            String    @id @default(uuid())
+  userLowId     String    @map("user_low_id")
+  userHighId    String    @map("user_high_id")
+  lastMessageAt DateTime? @map("last_message_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  userLow  User                 @relation("ConversationLow", fields: [userLowId], references: [id], onDelete: Cascade)
+  userHigh User                 @relation("ConversationHigh", fields: [userHighId], references: [id], onDelete: Cascade)
+  members  ConversationMember[]
+  messages Message[]
+
+  @@unique([userLowId, userHighId])
+  @@index([userHighId])
+  @@map("conversations")
+}
+
+model ConversationMember {
+  conversationId    String    @map("conversation_id")
+  userId            String    @map("user_id")
+  lastReadMessageId BigInt    @default(0) @map("last_read_message_id")
+  // Monotonic: only ever moves forward, never past the newest message.
+  lastReadAt        DateTime? @map("last_read_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     Message[]
+
+  @@id([conversationId, userId])
+  @@index([userId, conversationId])
+  @@map("conversation_members")
+}
+
+model Message {
+  id              BigInt   @id @default(autoincrement())
+  // Sent to clients as a decimal STRING (JS numbers lose precision past 2^53).
+  conversationId  String   @map("conversation_id")
+  senderId        String   @map("sender_id")
+  clientMessageId String   @map("client_message_id")
+  // Client-generated UUID: a retried send returns the original row.
+  body            String
+  // 1–2000 characters after trimming — CHECK in the migration.
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  member       ConversationMember @relation(fields: [conversationId, senderId], references: [conversationId, userId], onDelete: Cascade)
+  // Composite FK: the database itself refuses a message from a non-member.
+
+  @@unique([senderId, clientMessageId])
+  @@index([conversationId, id])
+  @@index([senderId, createdAt])
+  @@index([createdAt])
+  @@map("messages")
+}
+
+// Live-chat WebSocket admission tickets. Next.js issues a 60-second signed
+// ticket (POST /api/chat/ws-ticket) and stores only the SHA-256 of its
+// random id; the Django WebSocket server marks it consumed in one atomic
+// UPDATE … WHERE consumed_at IS NULL AND expires_at > now(), so a ticket
+// admits exactly one connection, even across server restarts. Pruned by
+// the retention job.
+model ChatWsTicket {
+  jtiHash    String    @id @map("jti_hash")
+  userId     String    @map("user_id")
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("chat_ws_tickets")
+}
+
+// Kept 90 days with its own evidence snapshot, so deleting the message,
+// conversation or either account does not erase the report.
+model UserReport {
+  id             String       @id @default(uuid())
+  reporterId     String?      @map("reporter_id")
+  reportedUserId String?      @map("reported_user_id")
+  messageId      BigInt?      @map("message_id")
+  // No FK: the message may be deleted (retention, account deletion).
+  reason         ReportReason
+  details        String?
+  evidence       String?
+  // Copy of the reported message body at report time.
+  status         ReportStatus @default(OPEN)
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  reporter     User? @relation("ReportsMade", fields: [reporterId], references: [id], onDelete: SetNull)
+  reportedUser User? @relation("ReportsReceived", fields: [reportedUserId], references: [id], onDelete: SetNull)
+
+  @@index([reporterId, createdAt])
+  @@index([reportedUserId])
+  @@index([createdAt])
+  @@map("user_reports")
+}
+
+// ─────────────────────────────────────────────────────────────
 // ENUMS
 // ─────────────────────────────────────────────────────────────
 // Enums restrict a column to ONLY these values. PostgreSQL enforces
@@ -834,4 +1044,22 @@ enum DietaryType {
   NON_VEG       // Non-vegetarian — eats everything
   VEGAN         // No animal products at all
   EGGETARIAN    // Vegetarian + eggs
+}
+
+enum BuddyshipStatus {
+  PENDING // requestedById asked, the other hasn't answered
+  ACCEPTED // buddies — may chat
+  INACTIVE // declined / cancelled / removed / blocked (row kept for cooldown)
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  INAPPROPRIATE
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
 }

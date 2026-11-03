@@ -23,19 +23,12 @@
  */
 import Link from "next/link";
 import { Dumbbell } from "lucide-react";
-import { APP_NAME } from "@/lib/utils/constants";
+import { APP_NAME, NAV_ITEMS } from "@/lib/utils/constants";
 import { getAuthUserId } from "@/lib/supabase/server";
 import { isUserOnboarded } from "@/lib/repositories/profile.repository";
 import { UserMenu } from "@/components/shared/user-menu";
 import { InstallButton } from "@/components/pwa/install-button";
 
-const APP_NAV_LINKS = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/workout", label: "Workout" },
-  { href: "/nutrition", label: "Nutrition" },
-  { href: "/progress", label: "Progress" },
-  { href: "/settings", label: "Settings" },
-];
 
 export default async function LandingPage() {
   const userId = await getAuthUserId();
@@ -71,7 +64,9 @@ export default async function LandingPage() {
           /* Fully onboarded member navbar */
           <div className="flex items-center gap-2 sm:gap-3">
             <nav className="flex items-center gap-1 sm:gap-2">
-              {APP_NAV_LINKS.map((link) => (
+              {/* Same links as the in-app top bar; Settings is in the
+                  profile-photo menu. */}
+              {NAV_ITEMS.map((link) => (
                 <Link
                   key={link.href}
                   href={link.href}

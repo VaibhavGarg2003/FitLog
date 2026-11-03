@@ -30,6 +30,11 @@
  */
 import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import {
+  PENDING_INVITE_COOKIE,
+  PENDING_INVITE_MAX_AGE,
+  isInvitePath,
+} from "@/lib/utils/pending-invite";
 
 // Routes that require authentication
 const PROTECTED_ROUTES = [
@@ -39,6 +44,8 @@ const PROTECTED_ROUTES = [
   "/progress",
   "/settings",
   "/onboarding",
+  "/chat",
+  "/buddies",
 ];
 
 // Routes that logged-in users should NOT see.
@@ -62,12 +69,26 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith(route)
   );
 
+  // A buddy invite must survive signup → onboarding (lib/utils/pending-invite).
+  const rememberInvite = (response: NextResponse) => {
+    if (isInvitePath(pathname)) {
+      response.cookies.set(PENDING_INVITE_COOKIE, pathname, {
+        path: "/",
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: PENDING_INVITE_MAX_AGE,
+      });
+    }
+    return response;
+  };
+
   // Step 3: Enforce auth rules
   if (isProtectedRoute && !user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(url);
+    return rememberInvite(NextResponse.redirect(url));
   }
 
   if (isAuthRoute && user) {
@@ -77,7 +98,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Step 4: Let the request through with refreshed cookies
-  return supabaseResponse;
+  return rememberInvite(supabaseResponse);
 }
 
 // WHICH ROUTES TRIGGER THIS PROXY:

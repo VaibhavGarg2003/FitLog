@@ -26,6 +26,7 @@
  *                             already written (409); the client must be able
  *                             to tell this apart from a 400 to recover
  *   ServiceUnavailableError — feature not provisioned / ops gap (503)
+ *   TooManyRequestsError    — a per-user chat/buddy limit was hit (429)
  *
  * USAGE in every route's catch block:
  *   } catch (error) {
@@ -85,6 +86,22 @@ export class ConflictError extends UserFacingError {
   constructor(message: string) {
     super(message);
     this.name = "ConflictError";
+  }
+}
+
+/**
+ * The user hit a per-user limit (429). A seventh class, justified by the chat
+ * feature: its limits live in Postgres and are enforced deep in a repository
+ * transaction (sends per minute, buddy requests per day), so they must travel
+ * as an error rather than a route-level early return like the AI limiters.
+ * The client must tell "slow down" apart from "fix your input" (400) to back
+ * off instead of showing a validation message.
+ */
+export class TooManyRequestsError extends UserFacingError {
+  readonly httpStatus = 429;
+  constructor(message = "You're doing that too often. Please wait a moment.") {
+    super(message);
+    this.name = "TooManyRequestsError";
   }
 }
 

@@ -30,6 +30,7 @@ import { TimezoneCard } from "./_components/timezone-card";
 import { CoachCheckinsCard } from "./_components/coach-checkins-card";
 import { SigninMethodsCard } from "./_components/signin-methods-card";
 import { SharedLinksCard } from "./_components/shared-links-card";
+import { BuddiesChatCard } from "./_components/buddies-chat-card";
 import { DangerZoneCard } from "./_components/danger-zone-card";
 import { InstallAppCard } from "@/components/pwa/install-button";
 import { signOutClient } from "@/lib/offline/sign-out";
@@ -208,6 +209,8 @@ export default function SettingsPage() {
           </Suspense>
 
           {/* Shared workout links — manage / revoke (renders if any exist) */}
+          <BuddiesChatCard />
+
           <SharedLinksCard />
 
           {/* Permanent account deletion — hidden when not provisioned */}

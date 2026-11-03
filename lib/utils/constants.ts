@@ -36,6 +36,8 @@ export const ROUTES = {
   nutritionRecipe: "/nutrition/recipe",
   progress: "/progress",
   settings: "/settings",
+  chat: "/chat",
+  buddies: "/buddies",
 } as const;
 // `as const` makes these READONLY — TypeScript won't let you
 // accidentally write `ROUTES.home = "/other"` somewhere.
@@ -64,11 +66,26 @@ export const DEFAULT_STEPS_TARGET = 10_000;
 // ─── WHO Intensity Minutes Target ──────────────────────
 export const WEEKLY_INTENSITY_MINUTES_TARGET = 150;
 
-// ─── Bottom Nav Items ──────────────────────────────────
+// ─── Nav Items ─────────────────────────────────────────
+// Top bar (in-app header AND the landing page header): the app's sections
+// plus Chat and Buddies. Settings is NOT here — it lives in the
+// profile-photo menu (components/shared/user-menu) on every screen size.
 export const NAV_ITEMS = [
   { label: "Dashboard", href: ROUTES.dashboard, icon: "LayoutDashboard" },
   { label: "Workout", href: ROUTES.workout, icon: "Dumbbell" },
   { label: "Nutrition", href: ROUTES.nutrition, icon: "UtensilsCrossed" },
   { label: "Progress", href: ROUTES.progress, icon: "TrendingUp" },
-  { label: "Settings", href: ROUTES.settings, icon: "Settings" },
+  { label: "Chat", href: ROUTES.chat, icon: "MessageCircle" },
+  { label: "Buddies", href: ROUTES.buddies, icon: "Users" },
+] as const;
+
+// Phone bottom bar: five thumb-sized tabs. Chat takes Settings' slot;
+// Settings is in the profile-photo menu, Buddies is one tap away from the
+// Chat screen's header.
+export const MOBILE_NAV_ITEMS = [
+  { label: "Dashboard", href: ROUTES.dashboard, icon: "LayoutDashboard" },
+  { label: "Workout", href: ROUTES.workout, icon: "Dumbbell" },
+  { label: "Nutrition", href: ROUTES.nutrition, icon: "UtensilsCrossed" },
+  { label: "Progress", href: ROUTES.progress, icon: "TrendingUp" },
+  { label: "Chat", href: ROUTES.chat, icon: "MessageCircle" },
 ] as const;

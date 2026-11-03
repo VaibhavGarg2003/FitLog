@@ -1,0 +1,77 @@
+# Chat Retention (nightly)
+# ════════════════════════
+#
+# Deletes chat messages older than 90 days, old reports, the buddy-request
+# ledger and expired WebSocket tickets, then reports how much of the database
+# chat uses (POST /api/chat/retention — lib/services/chat-retention.service.ts).
+#
+# FAILS (→ GitHub emails the repo owner) when:
+#   • the endpoint doesn't answer 200 with the expected JSON, or
+#   • chat storage is over budget (CHAT_STORAGE_BUDGET_MB on Vercel, default
+#     150 MB of the free plan's 500 MB) — shorten retention or set
+#     CHAT_WRITES_PAUSED=true before the database goes read-only.
+#
+# GitHub may delay or skip scheduled runs (busiest at the top of the hour,
+# hence :17). A missed night is harmless — the next run catches up, and
+# `incomplete: true` just means "more to delete tomorrow".
+#
+# REQUIRED REPO SECRETS:
+#   CHAT_RETENTION_URL  full URL, e.g. https://<prod-host>/api/chat/retention
+#   CRON_SECRET         same value as CRON_SECRET in the Vercel env
+#
+# COST: $0 (a few seconds of the 2,000 free Actions minutes/month).
+
+name: Chat Retention
+
+on:
+  schedule:
+    - cron: "17 21 * * *" # daily 21:17 UTC (02:47 IST — quiet hours)
+  workflow_dispatch:
+
+jobs:
+  retention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run chat retention
+        env:
+          CHAT_RETENTION_URL: ${{ secrets.CHAT_RETENTION_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CHAT_RETENTION_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CHAT_RETENTION_URL and CRON_SECRET secrets must be set."
+            exit 1
+          fi
+
+          body=$(mktemp)
+          code=$(curl -sS -m 90 -o "$body" -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${CHAT_RETENTION_URL}")
+
+          echo "HTTP $code"
+          cat "$body"
+          echo
+
+          if [ "$code" != "200" ]; then
+            echo "::error::Chat retention returned HTTP $code"
+            exit 1
+          fi
+
+          # Assert on the BODY, not just the status (see keepalive.yml history).
+          if ! jq -e '.deleted and (.chatBytes | type == "number")' "$body" > /dev/null; then
+            echo "::error::Unexpected response — retention did not run"
+            exit 1
+          fi
+
+          chat_mb=$(jq -r '(.chatBytes / 1048576 | floor)' "$body")
+          db_mb=$(jq -r '(.databaseBytes / 1048576 | floor)' "$body")
+          echo "Chat tables: ${chat_mb} MB · whole database: ${db_mb} MB"
+
+          if jq -e '.overBudget == true' "$body" > /dev/null; then
+            echo "::error::Chat storage (${chat_mb} MB) is over budget. Shorten retention or set CHAT_WRITES_PAUSED=true on Vercel."
+            exit 1
+          fi
+
+          echo "✅ Chat retention done"

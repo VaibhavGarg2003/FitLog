@@ -15,14 +15,15 @@
  * This prevents users from creating profiles for other users.
  */
 
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { PENDING_INVITE_COOKIE, pendingInvitePath } from "@/lib/utils/pending-invite";
 import { createClient } from "@/lib/supabase/server";
 import { onboardingSchema } from "@/lib/validators/onboarding.schema";
 import { timezoneSchema } from "@/lib/validators/api.schema";
 import { completeOnboarding } from "@/lib/services/profile.service";
 import { handleRouteError } from "@/lib/utils/errors";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     // 1. Authenticate — who is making this request?
     const supabase = await createClient();
@@ -72,15 +73,22 @@ export async function POST(request: Request) {
       { timezone: timezone.success ? timezone.data : undefined }
     );
 
-    // 5. Return success
-    return NextResponse.json(
+    // 5. Return success — plus where to go next: a buddy invite the user
+    // opened before they had an account (lib/utils/pending-invite.ts).
+    const next = pendingInvitePath(
+      request.cookies.get(PENDING_INVITE_COOKIE)?.value
+    );
+    const response = NextResponse.json(
       {
         success: true,
         profile: result.profile,
         calculated: result.calculated,
+        next,
       },
       { status: 201 }
     );
+    if (next) response.cookies.delete(PENDING_INVITE_COOKIE);
+    return response;
   } catch (error) {
     return handleRouteError(error, "POST /api/onboarding");
   }
