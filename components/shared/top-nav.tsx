@@ -30,7 +30,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Dumbbell } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-import { APP_NAME, NAV_ITEMS } from "@/lib/utils/constants";
+import { APP_NAME, NAV_ITEMS, ROUTES } from "@/lib/utils/constants";
+import { UnreadBadge } from "@/components/chat/unread-badge";
 import { UserMenu } from "@/components/shared/user-menu";
 
 export function TopNav() {
@@ -70,13 +71,14 @@ export function TopNav() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+                    "flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors",
                     isActive
                       ? "text-primary"
                       : "text-text-secondary hover:text-text-primary"
                   )}
                 >
                   {item.label}
+                  {item.href === ROUTES.chat && <UnreadBadge />}
                 </Link>
               );
             })}

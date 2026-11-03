@@ -5,7 +5,8 @@
  * WHAT THIS IS:
  * A mobile-first bottom navigation bar (like Instagram, YouTube).
  * Fixed at the bottom of the screen. 5 tabs: Dashboard, Workout,
- * Nutrition, Progress, Settings.
+ * Nutrition, Progress, Chat (with an unread badge). Settings lives in the
+ * profile-photo menu at the top on phones.
  *
  * WHY BOTTOM NAV (NOT TOP)?
  * ─────────────────────────
@@ -34,10 +35,11 @@ import {
   Dumbbell,
   UtensilsCrossed,
   TrendingUp,
-  Settings,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-import { NAV_ITEMS } from "@/lib/utils/constants";
+import { MOBILE_NAV_ITEMS, ROUTES } from "@/lib/utils/constants";
+import { UnreadBadge } from "@/components/chat/unread-badge";
 
 // Map icon names (strings) to actual React components.
 // This lookup table lets us use string icon names from constants.ts.
@@ -46,7 +48,7 @@ const iconMap = {
   Dumbbell,
   UtensilsCrossed,
   TrendingUp,
-  Settings,
+  MessageCircle,
 } as const;
 
 export function BottomNav() {
@@ -71,7 +73,7 @@ export function BottomNav() {
     >
       {/* Full-width tab row — no max-width cap; tabs share 100% evenly */}
       <div className="flex items-center justify-around h-16 w-full">
-        {NAV_ITEMS.map((item) => {
+        {MOBILE_NAV_ITEMS.map((item) => {
           // Check if this tab is currently active.
           // /workout/123 should highlight the Workout tab.
           const isActive =
@@ -96,11 +98,16 @@ export function BottomNav() {
                   : "text-text-muted hover:text-text-secondary"
               )}
             >
-              <Icon
-                size={22}
-                strokeWidth={isActive ? 2.5 : 1.5}
-                // Active tab gets thicker icon strokes — subtle but noticeable
-              />
+              <span className="relative">
+                <Icon
+                  size={22}
+                  strokeWidth={isActive ? 2.5 : 1.5}
+                  // Active tab gets thicker icon strokes — subtle but noticeable
+                />
+                {item.href === ROUTES.chat && (
+                  <UnreadBadge className="absolute -top-1.5 -right-2.5" />
+                )}
+              </span>
               <span className="text-[10px] font-medium">{item.label}</span>
               {/* text-[10px] — Tailwind arbitrary value.
                   When you need a size that's not in the default scale,

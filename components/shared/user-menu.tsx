@@ -3,7 +3,8 @@
  * ═════════════════════════════════════
  *
  * Renders the signed-in user's Google profile photo (or a fallback)
- * on the top-right of the nav. Click opens a small menu with "Sign out".
+ * on the top-right of the nav. Click opens a small menu: Settings and Sign
+ * out. Settings lives only here (not in the top bar or the bottom bar).
  *
  * Sign-out goes through POST /api/auth/logout so httpOnly session
  * cookies are cleared on the server (never from the browser).
@@ -14,7 +15,8 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { LogOut, User } from "lucide-react";
+import Link from "next/link";
+import { LogOut, Settings, User } from "lucide-react";
 import { useProfile } from "@/lib/hooks/use-profile";
 import { signOutClient } from "@/lib/offline/sign-out";
 import { useOptionalOutbox } from "@/lib/offline/outbox-provider";
@@ -138,6 +140,22 @@ export function UserMenu({ userId: serverUserId }: UserMenuProps = {}) {
               )}
             </div>
           )}
+
+          {/* Settings lives here on every screen size (it is not in the
+              top bar or the phone bottom bar). */}
+          <Link
+            href="/settings"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg px-3 py-2.5",
+              "text-sm font-medium text-text-primary",
+              "hover:bg-surface-hover transition-colors"
+            )}
+          >
+            <Settings size={16} />
+            Settings
+          </Link>
 
           <button
             type="button"

@@ -107,17 +107,22 @@ export function OnboardingShell({ userId }: { userId: string }) {
         }),
       });
 
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || "Failed to save profile");
       }
+      // A buddy invite opened before signing up wins over the dashboard.
+      const next =
+        typeof data.next === "string" && data.next.startsWith("/buddies/invite/")
+          ? data.next
+          : "/dashboard";
 
       // Success. Do NOT call reset() here — it sets currentStep back to 1 while
       // this page is still mounted, which flashes step 1 for a frame before
       // navigation. Wipe localStorage only, leave in-memory step at 5 so the
       // "Saving..." UI stays put until /dashboard takes over.
       await useOnboardingStore.persist.clearStorage();
-      router.replace("/dashboard");
+      router.replace(next);
       router.refresh(); // Re-run server components to pick up new profile
       // Keep isSubmitting true so the button doesn't re-enable mid-transition.
     } catch (err) {

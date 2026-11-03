@@ -111,6 +111,8 @@ SELECT * FROM private.cross_service_fk_drift();
 | `001_least_privilege_roles.sql` | Creates roles, transfers ownership, sets grants |
 | `001_least_privilege_roles_rollback.sql` | Reverses everything |
 | `002_delete_user_account.sql` | `private.delete_user_account` + `fitlog_deleter` role (account deletion). **Requires 001 first** (schema `private`). |
+| `004_revoke_api_role_grants.sql` | Removes every privilege `anon`/`authenticated` held in schema `public` (Supabase defaults: SELECT…TRUNCATE on 27 tables in prod) and stops postgres-created objects inheriting them. Self-verifying; idempotent. Rollback: `004_revoke_api_role_grants_rollback.sql`. Check with `has_table_privilege`, **not** `information_schema.role_table_grants` (it hides grants the querying role can't see). |
+| `005_django_runtime_role.sql` | `fitlog_django`: least-privilege runtime role for the Django service (share links, admin, live-chat sockets). BYPASSRLS + exact grants: Django's own tables, share_links, workout_templates (SELECT/INSERT), users (SELECT id, name only — no emails), foods, chat_ws_tickets (consume only). Replaces `postgres` as Django's runtime login; migrations stay `postgres`. Self-verifying. |
 | `EXTRACT_rls_auto_enable.md` | Read-only commands to re-dump the live function — use to check production and `000` have not drifted apart |
 | `check_rls_auto_enable.sql` | Read-only fingerprint of the function **and** trigger (body hash, owner, `SECURITY DEFINER`, `search_path`, event, target function, tags, enabled state). Used by the drift check. |
 

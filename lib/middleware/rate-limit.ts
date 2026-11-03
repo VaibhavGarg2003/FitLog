@@ -190,6 +190,26 @@ const workoutParserLimiter = (() => {
   });
 })();
 
+/**
+ * Buddy-handle Lookup Rate Limiter
+ * ────────────────────────────────
+ * 60 exact-handle lookups per user per hour. Lookups are read-only and only
+ * reveal opted-in users' public handle/name/avatar, so failing OPEN (like the
+ * AI limiters) is acceptable here; the limit just makes scraping handles by
+ * guessing slow. Buddy WRITES are limited in Postgres instead
+ * (social.service.ts), which fails closed.
+ */
+const handleLookupLimiter = (() => {
+  const redis = getRedis();
+  if (!redis) return null;
+
+  return new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(60, "1 h"),
+    prefix: "fitlog:social:lookup",
+  });
+})();
+
 export interface RateLimitResult {
   limited: boolean;
   remaining?: number;
@@ -244,4 +264,19 @@ export async function checkReportLimit(
   }
 
   return runLimit(reportLimiter, userId, "AI report");
+}
+
+/**
+ * Check the buddy-handle lookup limit.
+ *
+ * @returns { limited: false } if Redis is not configured (development mode)
+ */
+export async function checkHandleLookupLimit(
+  userId: string
+): Promise<RateLimitResult> {
+  if (!handleLookupLimiter) {
+    return { limited: false };
+  }
+
+  return runLimit(handleLookupLimiter, userId, "handle lookup");
 }

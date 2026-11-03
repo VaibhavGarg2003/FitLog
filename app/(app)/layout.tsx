@@ -35,6 +35,7 @@ import { TimezonePrompt } from "@/components/shared/timezone-prompt";
 import { todayForUser } from "@/lib/utils/local-date";
 import { OutboxProvider } from "@/lib/offline/outbox-provider";
 import { OfflineBanner } from "@/components/pwa/offline-banner";
+import { LiveChatProvider } from "@/components/chat/live-provider";
 
 export default async function AppLayout({
   children,
@@ -62,11 +63,16 @@ export default async function AppLayout({
     // background on every app page (see lib/offline/outbox-provider.tsx).
     // TimezoneProvider: the saved time zone is the ONE calendar the app runs
     // on — "today" everywhere comes from it (components/shared/timezone-provider).
-    <OutboxProvider userId={userId}>
+    // key={userId}: a different account remounts the whole shell, so no state,
+    // socket, timer or pending callback from the previous account survives.
+    <OutboxProvider key={userId} userId={userId}>
       <TimezoneProvider
         savedTimeZone={shell.timezone}
         initialToday={todayForUser(shell.timezone)}
       >
+      {/* LiveChatProvider: the live-chat socket (buddies who opted in only);
+          chat falls back to polling without it. */}
+      <LiveChatProvider>
       <div className="w-full min-h-dvh bg-background flex flex-col">
         {/* Desktop nav + mobile logo/home bar (responsive; see top-nav.tsx) */}
         <TopNav />
@@ -80,6 +86,7 @@ export default async function AppLayout({
         <TimezoneSync savedTimeZone={shell.timezone} />
         <TimezonePrompt userId={userId} />
       </div>
+      </LiveChatProvider>
       </TimezoneProvider>
     </OutboxProvider>
   );
